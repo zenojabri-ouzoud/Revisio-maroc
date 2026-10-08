@@ -7,6 +7,10 @@
 #
 # التشغيل:
 #   streamlit run app.py
+#
+# حساب المطور:
+#   Username: Soufiane Ouhazza
+#   Password: bouchra2012-2026
 # ============================================================================
 
 import streamlit as st
@@ -45,15 +49,15 @@ def hash_password(password):
     return hashlib.sha256(password.encode()).hexdigest()
 
 # ----------------------------------------------------------------------------
-# إدارة المستخدمين
+# إدارة المستخدمين — المطور فقط
 # ----------------------------------------------------------------------------
 def load_users():
     if os.path.exists(USERS_FILE):
         with open(USERS_FILE, "r", encoding="utf-8") as f:
             return json.load(f)
     default_users = {
-        "admin": {
-            "password": hash_password("admin123"),
+        "Soufiane Ouhazza": {
+            "password": hash_password("bouchra2012-2026"),
             "role": "developer",
             "full_name": "Soufiane Ouhazza"
         }
@@ -64,20 +68,6 @@ def load_users():
 def save_users(users):
     with open(USERS_FILE, "w", encoding="utf-8") as f:
         json.dump(users, f, ensure_ascii=False, indent=2)
-
-def register_user(username, password, full_name=""):
-    users = load_users()
-    if username in users:
-        return False, "❌ اسم المستخدم موجود مسبقاً"
-    if len(password) < 4:
-        return False, "❌ كلمة المرور قصيرة جداً"
-    users[username] = {
-        "password": hash_password(password),
-        "role": "student",
-        "full_name": full_name or username
-    }
-    save_users(users)
-    return True, "✅ تم إنشاء الحساب بنجاح"
 
 def authenticate(username, password):
     users = load_users()
@@ -163,10 +153,10 @@ TRANSLATIONS = {
         "congrats": "🎉 مبروك! ارتقيت إلى المستوى",
         "no_questions": "⚠️ لا توجد أسئلة متاحة", "back": "🔙 رجوع",
         "quiz_of": "اختبار:", "no_lessons_quiz": "⚠️ لا توجد دروس متاحة",
-        "login": "🔐 تسجيل الدخول", "register": "📝 إنشاء حساب",
+        "login": "🔐 تسجيل الدخول",
         "guest": "👤 الدخول كزائر", "username": "اسم المستخدم",
-        "password": "كلمة المرور", "full_name": "الاسم الكامل",
-        "login_btn": "دخول", "register_btn": "تسجيل", "logout": "🚪 تسجيل الخروج",
+        "password": "كلمة المرور",
+        "login_btn": "دخول", "logout": "🚪 تسجيل الخروج",
         "auth_title": "مرحباً بك في 3AC RevisioMaroc",
         "auth_subtitle": "سجّل دخولك أو ادخل كزائر للبدء",
         "wrong_creds": "❌ اسم المستخدم أو كلمة المرور خاطئة",
@@ -187,12 +177,12 @@ TRANSLATIONS = {
         "correct_answer": "الإجابة الصحيحة", "explanation_text": "التفسير (اختياري)",
         "save_question": "💾 حفظ السؤال", "question_saved": "✅ تم حفظ السؤال بنجاح",
         "select_lesson_for_question": "اختر الدرس المرتبط بالسؤال",
-        "delete_lesson": "🗑️ حذف", "delete_question": "🗑️ حذف",
         "deleted": "✅ تم الحذف",
         "no_custom_lessons": "لا توجد دروس مخصصة بعد",
         "no_custom_questions": "لا توجد أسئلة مخصصة بعد",
         "lesson_content_optional": "(اتركه فارغاً إذا كنت ستستعمل صورة أو PDF فقط)",
         "lesson_content_label": "محتوى نصي (اختياري إذا رفعت صورة/PDF)",
+        "dev_only_note": "🔒 هذه اللوحة متاحة فقط للمطور Soufiane Ouhazza",
     },
     "fr": {
         "app_name": "Plateforme de révision", "dir": "ltr",
@@ -223,10 +213,10 @@ TRANSLATIONS = {
         "congrats": "🎉 Bravo ! Niveau",
         "no_questions": "⚠️ Aucune question", "back": "🔙 Retour",
         "quiz_of": "Quiz :", "no_lessons_quiz": "⚠️ Aucune leçon",
-        "login": "🔐 Connexion", "register": "📝 Inscription",
+        "login": "🔐 Connexion",
         "guest": "👤 Invité", "username": "Nom d'utilisateur",
-        "password": "Mot de passe", "full_name": "Nom complet",
-        "login_btn": "Connexion", "register_btn": "S'inscrire", "logout": "🚪 Déconnexion",
+        "password": "Mot de passe",
+        "login_btn": "Connexion", "logout": "🚪 Déconnexion",
         "auth_title": "Bienvenue sur 3AC RevisioMaroc",
         "auth_subtitle": "Connectez-vous ou entrez comme invité",
         "wrong_creds": "❌ Identifiants incorrects",
@@ -247,12 +237,12 @@ TRANSLATIONS = {
         "correct_answer": "Réponse correcte", "explanation_text": "Explication (optionnel)",
         "save_question": "💾 Sauvegarder", "question_saved": "✅ Question sauvegardée",
         "select_lesson_for_question": "Choisir la leçon",
-        "delete_lesson": "🗑️ Supprimer", "delete_question": "🗑️ Supprimer",
         "deleted": "✅ Supprimé",
         "no_custom_lessons": "Aucune leçon personnalisée",
         "no_custom_questions": "Aucune question personnalisée",
         "lesson_content_optional": "(Laissez vide si vous utilisez une image/PDF)",
         "lesson_content_label": "Contenu texte (optionnel)",
+        "dev_only_note": "🔒 Panneau réservé au développeur Soufiane Ouhazza",
     },
     "en": {
         "app_name": "Revision Platform", "dir": "ltr",
@@ -283,10 +273,10 @@ TRANSLATIONS = {
         "congrats": "🎉 Congrats! Level",
         "no_questions": "⚠️ No questions", "back": "🔙 Back",
         "quiz_of": "Quiz:", "no_lessons_quiz": "⚠️ No lessons",
-        "login": "🔐 Login", "register": "📝 Register",
+        "login": "🔐 Login",
         "guest": "👤 Guest", "username": "Username",
-        "password": "Password", "full_name": "Full name",
-        "login_btn": "Login", "register_btn": "Register", "logout": "🚪 Logout",
+        "password": "Password",
+        "login_btn": "Login", "logout": "🚪 Logout",
         "auth_title": "Welcome to 3AC RevisioMaroc",
         "auth_subtitle": "Login or continue as guest",
         "wrong_creds": "❌ Wrong credentials",
@@ -307,12 +297,12 @@ TRANSLATIONS = {
         "correct_answer": "Correct Answer", "explanation_text": "Explanation (optional)",
         "save_question": "💾 Save Question", "question_saved": "✅ Question saved",
         "select_lesson_for_question": "Select lesson",
-        "delete_lesson": "🗑️ Delete", "delete_question": "🗑️ Delete",
         "deleted": "✅ Deleted",
         "no_custom_lessons": "No custom lessons yet",
         "no_custom_questions": "No custom questions yet",
         "lesson_content_optional": "(Leave empty if using image/PDF only)",
         "lesson_content_label": "Text content (optional)",
+        "dev_only_note": "🔒 Developer panel - reserved to Soufiane Ouhazza",
     },
     "es": {
         "app_name": "Plataforma de revisión", "dir": "ltr",
@@ -343,10 +333,10 @@ TRANSLATIONS = {
         "congrats": "🎉 ¡Felicidades! Nivel",
         "no_questions": "⚠️ No hay preguntas", "back": "🔙 Volver",
         "quiz_of": "Cuestionario:", "no_lessons_quiz": "⚠️ No hay lecciones",
-        "login": "🔐 Iniciar sesión", "register": "📝 Registrarse",
+        "login": "🔐 Iniciar sesión",
         "guest": "👤 Invitado", "username": "Usuario",
-        "password": "Contraseña", "full_name": "Nombre completo",
-        "login_btn": "Entrar", "register_btn": "Registrar", "logout": "🚪 Salir",
+        "password": "Contraseña",
+        "login_btn": "Entrar", "logout": "🚪 Salir",
         "auth_title": "Bienvenido a 3AC RevisioMaroc",
         "auth_subtitle": "Inicia sesión o entra como invitado",
         "wrong_creds": "❌ Credenciales incorrectas",
@@ -367,12 +357,12 @@ TRANSLATIONS = {
         "correct_answer": "Respuesta correcta", "explanation_text": "Explicación (opcional)",
         "save_question": "💾 Guardar", "question_saved": "✅ Pregunta guardada",
         "select_lesson_for_question": "Elegir lección",
-        "delete_lesson": "🗑️ Eliminar", "delete_question": "🗑️ Eliminar",
         "deleted": "✅ Eliminado",
         "no_custom_lessons": "Sin lecciones personalizadas",
         "no_custom_questions": "Sin preguntas personalizadas",
         "lesson_content_optional": "(Deja vacío si usas imagen/PDF)",
         "lesson_content_label": "Contenido de texto (opcional)",
+        "dev_only_note": "🔒 Panel exclusivo del desarrollador Soufiane Ouhazza",
     },
 }
 
@@ -384,26 +374,26 @@ LANGUAGES = {
 }
 
 # ----------------------------------------------------------------------------
-# 🎨 الثيمات — 5 ألوان مختارة بعناية
+# 🎨 الثيمات الخمسة
 # ----------------------------------------------------------------------------
 THEMES = {
-    "🌙 Midnight Purple (بنفسجي ليلي)": {
+    "🌙 Midnight Purple": {
         "bg": "#0D0B1F", "card": "#1A1735", "text": "#EDE9FE",
         "accent": "#A78BFA", "secondary": "#221D4A", "border": "#3D3475"
     },
-    "🌊 Ocean Deep (أزرق محيطي)": {
+    "🌊 Ocean Deep": {
         "bg": "#0A1929", "card": "#132F4C", "text": "#E3F2FD",
         "accent": "#00B8D4", "secondary": "#0F2537", "border": "#1E4976"
     },
-    "🌅 Golden Sunset (غروب ذهبي)": {
+    "🌅 Golden Sunset": {
         "bg": "#1F1410", "card": "#331F17", "text": "#FFF3E0",
         "accent": "#FFB74D", "secondary": "#2A1A12", "border": "#5D3A24"
     },
-    "🌿 Forest Emerald (زمردي غابوي)": {
+    "🌿 Forest Emerald": {
         "bg": "#0B1F14", "card": "#143728", "text": "#E8F5E9",
         "accent": "#4ADE80", "secondary": "#0F2A1D", "border": "#1E5C3D"
     },
-    "🌸 Rose Quartz (وردي كوارتز)": {
+    "🌸 Rose Quartz": {
         "bg": "#1F0F1A", "card": "#331A2C", "text": "#FCE7F3",
         "accent": "#F472B6", "secondary": "#2A1524", "border": "#5C2444"
     },
@@ -423,7 +413,7 @@ SUBJECTS = {
 }
 
 # ----------------------------------------------------------------------------
-# الدروس الافتراضية (يمكن للمطور إضافة المزيد)
+# الدروس الافتراضية
 # ----------------------------------------------------------------------------
 LESSONS_DB = {
     "maths": {
@@ -454,7 +444,7 @@ QUESTIONS_DB = {
 # ----------------------------------------------------------------------------
 def init_session_state():
     defaults = {
-        "theme": "🌊 Ocean Deep (أزرق محيطي)",
+        "theme": "🌊 Ocean Deep",
         "language": "ar", "page": "dashboard",
         "selected_subject": None, "selected_lesson": None,
         "points": 0, "level": 1, "student_name": "",
@@ -555,7 +545,7 @@ def apply_theme():
             border-top: 1px solid {theme['border']};
             color: {theme['text']}; opacity: 0.7; font-size: 0.9em;
         }}
-        .footer a {{ color: {theme['accent']}; text-decoration: none; font-weight: bold; }}
+        .footer b {{ color: {theme['accent']}; }}
     </style>
     """, unsafe_allow_html=True)
 
@@ -595,33 +585,24 @@ def render_auth_page():
 
     col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
-        tab1, tab2 = st.tabs([T('login'), T('register')])
+        st.markdown(f"#### {T('login')}")
+        username = st.text_input(T('username'), key="login_user")
+        password = st.text_input(T('password'), type="password", key="login_pass")
 
-        with tab1:
-            username = st.text_input(T('username'), key="login_user")
-            password = st.text_input(T('password'), type="password", key="login_pass")
-            if st.button(T('login_btn'), use_container_width=True, key="login_btn"):
-                ok, user = authenticate(username, password)
-                if ok:
-                    st.session_state.authenticated = True
-                    st.session_state.username = username
-                    st.session_state.user_role = user["role"]
-                    st.session_state.full_name = user.get("full_name", username)
-                    st.session_state.student_name = user.get("full_name", username)
-                    st.rerun()
-                else:
-                    st.error(T('wrong_creds'))
+        if st.button(T('login_btn'), use_container_width=True, key="login_btn"):
+            ok, user = authenticate(username, password)
+            if ok:
+                st.session_state.authenticated = True
+                st.session_state.username = username
+                st.session_state.user_role = user["role"]
+                st.session_state.full_name = user.get("full_name", username)
+                st.session_state.student_name = user.get("full_name", username)
+                st.rerun()
+            else:
+                st.error(T('wrong_creds'))
 
-        with tab2:
-            new_user = st.text_input(T('username'), key="reg_user")
-            new_pass = st.text_input(T('password'), type="password", key="reg_pass")
-            new_name = st.text_input(T('full_name'), key="reg_name")
-            if st.button(T('register_btn'), use_container_width=True, key="reg_btn"):
-                ok, msg = register_user(new_user, new_pass, new_name)
-                if ok:
-                    st.success(msg)
-                else:
-                    st.error(msg)
+        st.markdown("---")
+        st.caption(f"👨‍💻 {T('dev_only_note')}")
 
         st.markdown("---")
         if st.button(f"👤 {T('guest')}", use_container_width=True, key="guest_btn"):
@@ -636,7 +617,8 @@ def render_auth_page():
 
     st.markdown(f"""
     <div class="footer">
-        © 2024 <a href="#">Soufiane Ouhazza</a> — All Rights Reserved
+        © 2024 <b>Soufiane Ouhazza</b> — 3AC RevisioMaroc<br>
+        All Rights Reserved
     </div>
     """, unsafe_allow_html=True)
 
@@ -703,17 +685,14 @@ def render_lessons():
 
     for lesson in lessons:
         with st.expander(f"📖 {lesson['title']}", expanded=False):
-            # النص
             if lesson.get('content'):
                 st.markdown(lesson['content'])
 
-            # الصورة
             if lesson.get('image') and os.path.exists(lesson['image']):
                 st.image(lesson['image'], use_container_width=True)
 
-            # PDF
             if lesson.get('pdf') and os.path.exists(lesson['pdf']):
-                st.markdown("#### 📄 ملف PDF")
+                st.markdown("#### 📄 PDF")
                 render_pdf(lesson['pdf'])
 
             st.markdown("---")
@@ -842,10 +821,16 @@ def render_quiz():
             st.rerun()
 
 # ============================================================================
-# ⚙️ لوحة المطور
+# ⚙️ لوحة المطور — فقط لـ Soufiane Ouhazza
 # ============================================================================
 def render_developer_panel():
+    # 🛡️ حماية مزدوجة — التأكد مرة أخرى
+    if st.session_state.user_role != "developer":
+        st.error("🔒 هذه اللوحة محمية — للمطور فقط")
+        st.stop()
+
     st.markdown(f"## ⚙️ {T('developer_panel')}")
+    st.caption(f"👨‍💻 {T('dev_only_note')}")
 
     tab1, tab2 = st.tabs([T('manage_lessons'), T('manage_questions')])
 
@@ -917,7 +902,6 @@ def render_developer_panel():
                         st.markdown(f"{icons} **{lesson['title']}**")
                     with c2:
                         if st.button("🗑️", key=f"del_lesson_{lesson['id']}"):
-                            # حذف الملفات المرتبطة
                             if lesson.get('image') and os.path.exists(lesson['image']):
                                 os.remove(lesson['image'])
                             if lesson.get('pdf') and os.path.exists(lesson['pdf']):
@@ -1077,6 +1061,7 @@ with st.sidebar:
         st.session_state.selected_lesson = None
         st.rerun()
 
+    # 🔒 لوحة المطور — تظهر فقط لـ Soufiane Ouhazza
     if st.session_state.user_role == "developer":
         if st.button(T('developer'), use_container_width=True):
             st.session_state.page = "developer"
@@ -1104,8 +1089,15 @@ with st.sidebar:
     </div>
     """, unsafe_allow_html=True)
 
-# التوجيه
+# التوجيه بين الصفحات
 page = st.session_state.page
+
+# 🛡️ حماية: لو حاول أحد غير المطور الدخول للوحة المطور
+if page == "developer" and st.session_state.user_role != "developer":
+    st.error("🔒 هذه الصفحة محمية — للمطور فقط")
+    st.session_state.page = "dashboard"
+    st.rerun()
+
 if page == "dashboard":
     render_dashboard()
 elif page == "lessons":
