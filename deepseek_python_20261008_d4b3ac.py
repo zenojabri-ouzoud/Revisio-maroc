@@ -516,7 +516,7 @@ def add_points(points):
     st.session_state.points += points
     new_level = st.session_state.points // 100 + 1
     if new_level > st.session_state.level:
-        st.session_state.level = new_level st.balloons()
+        st.session_state.level = new_level 
         st.success(f"{T('congrats')} {new_level}!")
 
 def get_progress_percent():
