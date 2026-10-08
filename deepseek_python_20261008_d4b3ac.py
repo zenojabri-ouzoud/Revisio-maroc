@@ -1,6 +1,6 @@
 # ============================================================================
 # 3AC RevisioMaroc - النسخة النهائية
-# © 2024 Soufiane Ouhazza - All Rights Reserved
+# © 2026 Soufiane Ouhazza - All Rights Reserved
 # ============================================================================
 # التثبيت:
 #   pip install streamlit pandas
@@ -9,7 +9,7 @@
 #   streamlit run app.py
 #
 # حساب المطور:
-#   Username: Soufiane Ouhazza
+#   Username: soufiane
 #   Password: bouchra2012-2026
 # ============================================================================
 
@@ -49,14 +49,15 @@ def hash_password(password):
     return hashlib.sha256(password.encode()).hexdigest()
 
 # ----------------------------------------------------------------------------
-# إدارة المستخدمين — المطور فقط
+# إدارة المستخدمين
 # ----------------------------------------------------------------------------
 def load_users():
     if os.path.exists(USERS_FILE):
         with open(USERS_FILE, "r", encoding="utf-8") as f:
             return json.load(f)
+    # ⚙️ حساب المطور الوحيد (Soufiane Ouhazza)
     default_users = {
-        "Soufiane Ouhazza": {
+        "soufiane": {
             "password": hash_password("bouchra2012-2026"),
             "role": "developer",
             "full_name": "Soufiane Ouhazza"
@@ -68,6 +69,23 @@ def load_users():
 def save_users(users):
     with open(USERS_FILE, "w", encoding="utf-8") as f:
         json.dump(users, f, ensure_ascii=False, indent=2)
+
+def register_user(username, password, full_name=""):
+    """تسجيل تلميذ جديد."""
+    users = load_users()
+    if username in users:
+        return False, "❌ اسم المستخدم موجود مسبقاً"
+    if len(password) < 4:
+        return False, "❌ كلمة المرور قصيرة جداً (4 أحرف على الأقل)"
+    if username.lower() in ["soufiane", "admin"]:
+        return False, "❌ هذا الاسم محجوز"
+    users[username] = {
+        "password": hash_password(password),
+        "role": "student",
+        "full_name": full_name or username
+    }
+    save_users(users)
+    return True, "✅ تم إنشاء الحساب بنجاح"
 
 def authenticate(username, password):
     users = load_users()
@@ -153,10 +171,10 @@ TRANSLATIONS = {
         "congrats": "🎉 مبروك! ارتقيت إلى المستوى",
         "no_questions": "⚠️ لا توجد أسئلة متاحة", "back": "🔙 رجوع",
         "quiz_of": "اختبار:", "no_lessons_quiz": "⚠️ لا توجد دروس متاحة",
-        "login": "🔐 تسجيل الدخول",
+        "login": "🔐 تسجيل الدخول", "register": "📝 إنشاء حساب",
         "guest": "👤 الدخول كزائر", "username": "اسم المستخدم",
-        "password": "كلمة المرور",
-        "login_btn": "دخول", "logout": "🚪 تسجيل الخروج",
+        "password": "كلمة المرور", "full_name": "الاسم الكامل",
+        "login_btn": "دخول", "register_btn": "تسجيل", "logout": "🚪 تسجيل الخروج",
         "auth_title": "مرحباً بك في 3AC RevisioMaroc",
         "auth_subtitle": "سجّل دخولك أو ادخل كزائر للبدء",
         "wrong_creds": "❌ اسم المستخدم أو كلمة المرور خاطئة",
@@ -213,10 +231,10 @@ TRANSLATIONS = {
         "congrats": "🎉 Bravo ! Niveau",
         "no_questions": "⚠️ Aucune question", "back": "🔙 Retour",
         "quiz_of": "Quiz :", "no_lessons_quiz": "⚠️ Aucune leçon",
-        "login": "🔐 Connexion",
+        "login": "🔐 Connexion", "register": "📝 Inscription",
         "guest": "👤 Invité", "username": "Nom d'utilisateur",
-        "password": "Mot de passe",
-        "login_btn": "Connexion", "logout": "🚪 Déconnexion",
+        "password": "Mot de passe", "full_name": "Nom complet",
+        "login_btn": "Connexion", "register_btn": "S'inscrire", "logout": "🚪 Déconnexion",
         "auth_title": "Bienvenue sur 3AC RevisioMaroc",
         "auth_subtitle": "Connectez-vous ou entrez comme invité",
         "wrong_creds": "❌ Identifiants incorrects",
@@ -273,10 +291,10 @@ TRANSLATIONS = {
         "congrats": "🎉 Congrats! Level",
         "no_questions": "⚠️ No questions", "back": "🔙 Back",
         "quiz_of": "Quiz:", "no_lessons_quiz": "⚠️ No lessons",
-        "login": "🔐 Login",
+        "login": "🔐 Login", "register": "📝 Register",
         "guest": "👤 Guest", "username": "Username",
-        "password": "Password",
-        "login_btn": "Login", "logout": "🚪 Logout",
+        "password": "Password", "full_name": "Full name",
+        "login_btn": "Login", "register_btn": "Register", "logout": "🚪 Logout",
         "auth_title": "Welcome to 3AC RevisioMaroc",
         "auth_subtitle": "Login or continue as guest",
         "wrong_creds": "❌ Wrong credentials",
@@ -333,10 +351,10 @@ TRANSLATIONS = {
         "congrats": "🎉 ¡Felicidades! Nivel",
         "no_questions": "⚠️ No hay preguntas", "back": "🔙 Volver",
         "quiz_of": "Cuestionario:", "no_lessons_quiz": "⚠️ No hay lecciones",
-        "login": "🔐 Iniciar sesión",
+        "login": "🔐 Iniciar sesión", "register": "📝 Registrarse",
         "guest": "👤 Invitado", "username": "Usuario",
-        "password": "Contraseña",
-        "login_btn": "Entrar", "logout": "🚪 Salir",
+        "password": "Contraseña", "full_name": "Nombre completo",
+        "login_btn": "Entrar", "register_btn": "Registrar", "logout": "🚪 Salir",
         "auth_title": "Bienvenido a 3AC RevisioMaroc",
         "auth_subtitle": "Inicia sesión o entra como invitado",
         "wrong_creds": "❌ Credenciales incorrectas",
@@ -374,28 +392,42 @@ LANGUAGES = {
 }
 
 # ----------------------------------------------------------------------------
-# 🎨 الثيمات الخمسة
+# 🎨 الثيمات — 5 ثيمات بألوان مختارة
 # ----------------------------------------------------------------------------
 THEMES = {
+    # ⚽ ثيم FC Barcelona — أحمر + أزرق غامق + أخضر فاتح
+    "⚽ FC Barcelona": {
+        "bg": "#0A1E3F",           # أزرق غامق جداً (Blaugrana dark)
+        "card": "#1A2F5C",          # أزرق غامق للبطاقات
+        "text": "#F0F8FF",          # أبيض مائل للأزرق
+        "accent": "#A50044",        # أحمر برشلونة (Barca Red)
+        "secondary": "#0F2A52",     # أزرق غامق ثانوي
+        "border": "#004D98",        # أزرق برشلونة (Barca Blue)
+        "highlight": "#00D26A",     # أخضر فاتح (تأكيد/إيجابي)
+    },
+    # 🌙 ثيم بنفسجي ليلي
     "🌙 Midnight Purple": {
         "bg": "#0D0B1F", "card": "#1A1735", "text": "#EDE9FE",
-        "accent": "#A78BFA", "secondary": "#221D4A", "border": "#3D3475"
+        "accent": "#A78BFA", "secondary": "#221D4A", "border": "#3D3475",
+        "highlight": "#4ADE80"
     },
+    # 🌊 ثيم أزرق محيطي
     "🌊 Ocean Deep": {
         "bg": "#0A1929", "card": "#132F4C", "text": "#E3F2FD",
-        "accent": "#00B8D4", "secondary": "#0F2537", "border": "#1E4976"
+        "accent": "#00B8D4", "secondary": "#0F2537", "border": "#1E4976",
+        "highlight": "#4ADE80"
     },
+    # 🌅 ثيم غروب ذهبي
     "🌅 Golden Sunset": {
         "bg": "#1F1410", "card": "#331F17", "text": "#FFF3E0",
-        "accent": "#FFB74D", "secondary": "#2A1A12", "border": "#5D3A24"
+        "accent": "#FFB74D", "secondary": "#2A1A12", "border": "#5D3A24",
+        "highlight": "#4ADE80"
     },
+    # 🌿 ثيم زمردي غابوي
     "🌿 Forest Emerald": {
         "bg": "#0B1F14", "card": "#143728", "text": "#E8F5E9",
-        "accent": "#4ADE80", "secondary": "#0F2A1D", "border": "#1E5C3D"
-    },
-    "🌸 Rose Quartz": {
-        "bg": "#1F0F1A", "card": "#331A2C", "text": "#FCE7F3",
-        "accent": "#F472B6", "secondary": "#2A1524", "border": "#5C2444"
+        "accent": "#4ADE80", "secondary": "#0F2A1D", "border": "#1E5C3D",
+        "highlight": "#00D26A"
     },
 }
 
@@ -444,7 +476,7 @@ QUESTIONS_DB = {
 # ----------------------------------------------------------------------------
 def init_session_state():
     defaults = {
-        "theme": "🌊 Ocean Deep",
+        "theme": "⚽ FC Barcelona",  # ⚽ الثيم الافتراضي = برشلونة
         "language": "ar", "page": "dashboard",
         "selected_subject": None, "selected_lesson": None,
         "points": 0, "level": 1, "student_name": "",
@@ -484,8 +516,7 @@ def add_points(points):
     st.session_state.points += points
     new_level = st.session_state.points // 100 + 1
     if new_level > st.session_state.level:
-        st.session_state.level = new_level
-        st.balloons()
+        st.session_state.level = new_level        st.balloons()
         st.success(f"{T('congrats')} {new_level}!")
 
 def get_progress_percent():
@@ -498,38 +529,41 @@ def apply_theme():
     theme = THEMES[st.session_state.theme]
     direction = "rtl" if st.session_state.language == "ar" else "ltr"
     align = "right" if direction == "rtl" else "left"
+    highlight = theme.get("highlight", "#4ADE80")
 
     st.markdown(f"""
     <style>
         .stApp {{ background-color: {theme['bg']}; color: {theme['text']}; direction: {direction}; }}
-        section[data-testid="stSidebar"] {{ background-color: {theme['secondary']}; border-right: 2px solid {theme['border']}; }}
+        section[data-testid="stSidebar"] {{ background-color: {theme['secondary']}; border-right: 2px solid {theme['accent']}; }}
         section[data-testid="stSidebar"] * {{ color: {theme['text']} !important; }}
         .custom-card {{
             background-color: {theme['card']}; color: {theme['text']};
             padding: 20px; border-radius: 12px; border: 1px solid {theme['border']};
-            margin-bottom: 15px; box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+            margin-bottom: 15px; box-shadow: 0 4px 12px rgba(0,0,0,0.3);
             transition: transform 0.2s; text-align: {align};
         }}
         .custom-card:hover {{ transform: translateY(-3px); border-color: {theme['accent']}; }}
         h1, h2, h3, h4, h5, h6 {{ color: {theme['text']} !important; text-align: {align}; }}
         p, label, div {{ text-align: {align}; }}
         .stButton > button {{
-            background-color: {theme['accent']}; color: white; border-radius: 8px;
+            background: linear-gradient(135deg, {theme['accent']}, {theme['border']});
+            color: white; border-radius: 8px;
             border: none; padding: 10px 20px; font-weight: bold; transition: all 0.2s;
         }}
-        .stButton > button:hover {{ opacity: 0.85; transform: scale(1.02); }}
+        .stButton > button:hover {{ opacity: 0.9; transform: scale(1.02); box-shadow: 0 4px 15px {theme['accent']}66; }}
         .stTextInput input, .stSelectbox select, .stTextArea textarea {{
             background-color: {theme['card']} !important; color: {theme['text']} !important;
             border: 1px solid {theme['border']} !important;
         }}
-        .stProgress > div > div > div {{ background-color: {theme['accent']}; }}
+        .stProgress > div > div > div {{ background: linear-gradient(90deg, {theme['accent']}, {highlight}); }}
         div[data-testid="stMetricValue"] {{ color: {theme['accent']} !important; }}
         .main-header {{
-            background: linear-gradient(135deg, {theme['accent']}, {theme['secondary']});
+            background: linear-gradient(135deg, {theme['accent']} 0%, {theme['border']} 50%, {theme['accent']} 100%);
             padding: 30px; border-radius: 18px; text-align: center;
-            margin-bottom: 25px; box-shadow: 0 8px 25px rgba(0,0,0,0.3);
+            margin-bottom: 25px; box-shadow: 0 8px 25px rgba(0,0,0,0.4);
+            border: 2px solid {highlight};
         }}
-        .main-header h1, .main-header p {{ color: white !important; text-align: center; }}
+        .main-header h1, .main-header p {{ color: white !important; text-align: center; text-shadow: 0 2px 8px rgba(0,0,0,0.5); }}
         .main-header h1 {{ margin: 0; font-size: 2.3em; }}
         .main-header p {{ margin: 8px 0 0 0; opacity: 0.95; }}
         .streamlit-expanderHeader {{
@@ -542,10 +576,20 @@ def apply_theme():
         }}
         .footer {{
             text-align: center; padding: 20px; margin-top: 40px;
-            border-top: 1px solid {theme['border']};
-            color: {theme['text']}; opacity: 0.7; font-size: 0.9em;
+            border-top: 2px solid {theme['accent']};
+            color: {theme['text']}; opacity: 0.85; font-size: 0.9em;
         }}
-        .footer b {{ color: {theme['accent']}; }}
+        .footer b {{ color: {theme['accent']}; font-size: 1.05em; }}
+        /* Tabs */
+        .stTabs [data-baseweb="tab-list"] {{ gap: 8px; }}
+        .stTabs [data-baseweb="tab"] {{
+            background-color: {theme['card']}; border-radius: 8px;
+            padding: 8px 16px; border: 1px solid {theme['border']};
+        }}
+        .stTabs [aria-selected="true"] {{
+            background: linear-gradient(135deg, {theme['accent']}, {theme['border']}) !important;
+            color: white !important;
+        }}
     </style>
     """, unsafe_allow_html=True)
 
@@ -585,26 +629,43 @@ def render_auth_page():
 
     col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
-        st.markdown(f"#### {T('login')}")
-        username = st.text_input(T('username'), key="login_user")
-        password = st.text_input(T('password'), type="password", key="login_pass")
+        tab1, tab2 = st.tabs([T('login'), T('register')])
 
-        if st.button(T('login_btn'), use_container_width=True, key="login_btn"):
-            ok, user = authenticate(username, password)
-            if ok:
-                st.session_state.authenticated = True
-                st.session_state.username = username
-                st.session_state.user_role = user["role"]
-                st.session_state.full_name = user.get("full_name", username)
-                st.session_state.student_name = user.get("full_name", username)
-                st.rerun()
-            else:
-                st.error(T('wrong_creds'))
+        # --- الدخول ---
+        with tab1:
+            st.markdown(f"#### {T('login')}")
+            username = st.text_input(T('username'), key="login_user")
+            password = st.text_input(T('password'), type="password", key="login_pass")
+
+            if st.button(T('login_btn'), use_container_width=True, key="login_btn"):
+                ok, user = authenticate(username, password)
+                if ok:
+                    st.session_state.authenticated = True
+                    st.session_state.username = username
+                    st.session_state.user_role = user["role"]
+                    st.session_state.full_name = user.get("full_name", username)
+                    st.session_state.student_name = user.get("full_name", username)
+                    st.rerun()
+                else:
+                    st.error(T('wrong_creds'))
+
+        # --- التسجيل (للتلاميذ) ---
+        with tab2:
+            st.markdown(f"#### {T('register')}")
+            new_user = st.text_input(T('username'), key="reg_user")
+            new_pass = st.text_input(T('password'), type="password", key="reg_pass")
+            new_name = st.text_input(T('full_name'), key="reg_name")
+            if st.button(T('register_btn'), use_container_width=True, key="reg_btn"):
+                ok, msg = register_user(new_user, new_pass, new_name)
+                if ok:
+                    st.success(msg)
+                    st.info("يمكنك الآن تسجيل الدخول من تبويب الدخول")
+                else:
+                    st.error(msg)
 
         st.markdown("---")
-        st.caption(f"👨‍💻 {T('dev_only_note')}")
 
-        st.markdown("---")
+        # --- الدخول كزائر ---
         if st.button(f"👤 {T('guest')}", use_container_width=True, key="guest_btn"):
             st.session_state.authenticated = True
             st.session_state.username = "guest"
@@ -617,7 +678,7 @@ def render_auth_page():
 
     st.markdown(f"""
     <div class="footer">
-        © 2024 <b>Soufiane Ouhazza</b> — 3AC RevisioMaroc<br>
+        © 2026 <b>Soufiane Ouhazza</b> — 3AC RevisioMaroc<br>
         All Rights Reserved
     </div>
     """, unsafe_allow_html=True)
@@ -824,7 +885,7 @@ def render_quiz():
 # ⚙️ لوحة المطور — فقط لـ Soufiane Ouhazza
 # ============================================================================
 def render_developer_panel():
-    # 🛡️ حماية مزدوجة — التأكد مرة أخرى
+    # 🛡️ حماية مزدوجة
     if st.session_state.user_role != "developer":
         st.error("🔒 هذه اللوحة محمية — للمطور فقط")
         st.stop()
@@ -1014,7 +1075,7 @@ with st.sidebar:
     role = st.session_state.user_role
     role_label = {"student": T('role_student'), "developer": T('role_developer'),
                   "guest": T('role_guest')}.get(role, role)
-    badge_color = {"student": "#3498DB", "developer": "#E74C3C", "guest": "#95A5A6"}.get(role, "#4A90E2")
+    badge_color = {"student": "#3498DB", "developer": theme_colors['accent'], "guest": "#95A5A6"}.get(role, "#4A90E2")
 
     st.markdown(f"""
     <div class="custom-card" style="text-align:center; padding: 12px;">
@@ -1084,15 +1145,15 @@ with st.sidebar:
         st.rerun()
 
     st.markdown(f"""
-    <div style="text-align:center; padding: 15px; opacity: 0.6; font-size: 0.85em;">
-        © 2024 <b>Soufiane Ouhazza</b><br>All Rights Reserved
+    <div style="text-align:center; padding: 15px; opacity: 0.75; font-size: 0.85em;">
+        © 2026 <b>Soufiane Ouhazza</b><br>All Rights Reserved
     </div>
     """, unsafe_allow_html=True)
 
 # التوجيه بين الصفحات
 page = st.session_state.page
 
-# 🛡️ حماية: لو حاول أحد غير المطور الدخول للوحة المطور
+# 🛡️ حماية إضافية
 if page == "developer" and st.session_state.user_role != "developer":
     st.error("🔒 هذه الصفحة محمية — للمطور فقط")
     st.session_state.page = "dashboard"
@@ -1112,7 +1173,7 @@ else:
 # Footer
 st.markdown(f"""
 <div class="footer">
-    © 2024 <b>Soufiane Ouhazza</b> — 3AC RevisioMaroc<br>
+    © 2026 <b>Soufiane Ouhazza</b> — 3AC RevisioMaroc<br>
     All Rights Reserved
 </div>
 """, unsafe_allow_html=True)
