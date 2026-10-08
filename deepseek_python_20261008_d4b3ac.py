@@ -25,13 +25,13 @@ st.set_page_config(
 )
 
 # ----------------------------------------------------------------------------
-# الاتصال بـ Supabase
+# الاتصال بـ Supabase (بصيغة [supabase])
 # ----------------------------------------------------------------------------
 @st.cache_resource(show_spinner=False)
 def get_supabase():
     try:
-        url = st.secrets["SUPABASE_URL"]
-        key = st.secrets["SUPABASE_KEY"]
+        url = st.secrets["supabase"]["url"]
+        key = st.secrets["supabase"]["key"]
         return create_client(url, key)
     except Exception as e:
         st.error(f"❌ تعذر الاتصال بـ Supabase: {e}")
@@ -94,7 +94,6 @@ def authenticate(username, password):
 # إدارة الدروس - Supabase
 # ----------------------------------------------------------------------------
 def load_lessons(subject=None, language=None, owner=None):
-    """جلب الدروس - owner='public' للدروس الرسمية، owner=username للدروس الشخصية."""
     if supabase is None:
         return []
     try:
@@ -193,12 +192,10 @@ def delete_question(question_id):
 # رفع الملفات إلى Supabase Storage
 # ----------------------------------------------------------------------------
 def upload_file(uploaded_file, folder="uploads"):
-    """رفع ملف إلى Supabase Storage وإرجاع الرابط العام."""
     if supabase is None or uploaded_file is None:
         return None
     try:
         timestamp = int(datetime.now().timestamp() * 1000)
-        # تنظيف اسم الملف من الأحرف الخاصة
         safe_name = "".join(c for c in uploaded_file.name if c.isalnum() or c in "._-")
         filename = f"{folder}/{timestamp}_{safe_name}"
         file_bytes = uploaded_file.getbuffer()
@@ -296,7 +293,6 @@ TRANSLATIONS = {
         "lesson_content_optional": "(اتركه فارغاً إذا كنت ستستعمل صورة أو PDF فقط)",
         "lesson_content_label": "محتوى نصي (اختياري)",
         "dev_only_note": "🔒 هذه اللوحة متاحة فقط للمطور Soufiane Ouhazza",
-        # Student uploads
         "my_files_title": "📁 ملفاتي — رفع الدروس الخاصة",
         "my_files_subtitle": "ارفع صور و PDF لمراجعتك الشخصية — خاصة بك فقط",
         "upload_new_file": "➕ رفع ملف جديد",
@@ -1013,7 +1009,7 @@ def render_dashboard():
     st.info(T('tips'))
 
 # ============================================================================
-# 📚 الدروس (تلميذ + مطور)
+# 📚 الدروس
 # ============================================================================
 def render_lessons():
     st.markdown(f"## 📚 {T('lessons_bank')}")
@@ -1029,9 +1025,7 @@ def render_lessons():
 
     st.markdown("---")
 
-    # دروس المنصة (public)
     public_lessons = load_lessons(selected, st.session_state.language, owner="public")
-    # دروسي الشخصية (للتلميذ فقط)
     my_lessons = []
     if st.session_state.user_role == "student":
         my_lessons = load_lessons(selected, st.session_state.language, owner=st.session_state.username)
@@ -1040,13 +1034,11 @@ def render_lessons():
         st.warning(T('no_lessons'))
         return
 
-    # دروس المنصة
     if public_lessons:
         st.markdown(f"### {T('owner_public')}")
         for lesson in public_lessons:
             _render_lesson_card(lesson)
 
-    # دروسي
     if my_lessons:
         st.markdown(f"### {T('owner_mine')}")
         for lesson in my_lessons:
@@ -1075,7 +1067,7 @@ def _render_lesson_card(lesson, is_personal=False):
             st.rerun()
 
 # ============================================================================
-# 📁 ملفاتي (للتلميذ فقط) — رفع ملفات شخصية
+# 📁 ملفاتي (للتلميذ)
 # ============================================================================
 def render_my_files():
     st.markdown(f"## {T('my_files_title')}")
@@ -1083,7 +1075,6 @@ def render_my_files():
 
     st.info(f"🔒 {T('file_private_note')}")
 
-    # نموذج الرفع
     st.markdown(f"### {T('upload_new_file')}")
 
     with st.form("upload_student_file", clear_on_submit=True):
@@ -1146,7 +1137,6 @@ def render_my_files():
     st.markdown("---")
     st.markdown(f"### {T('my_uploads')}")
 
-    # عرض الملفات المرفوعة
     all_my_lessons = []
     for subj_key in SUBJECTS.keys():
         for lang_key in LANGUAGES.keys():
@@ -1170,7 +1160,6 @@ def render_my_files():
                         st.success(T('deleted'))
                         st.rerun()
 
-            # عرض المحتوى
             with st.expander(f"عرض {lesson['title']}", expanded=False):
                 if lesson.get('content'):
                     st.markdown(lesson['content'])
@@ -1186,15 +1175,11 @@ def render_quiz():
     st.markdown(f"## 📝 {T('smart_quizzes')}")
 
     if not st.session_state.selected_lesson:
-        # اجمع كل الدروس المتاحة
         all_lessons = []
-
-        # دروس المنصة
         for subj_key in SUBJECTS.keys():
             for lang_key in LANGUAGES.keys():
                 all_lessons.extend(load_lessons(subj_key, lang_key, owner="public"))
 
-        # دروسي
         if st.session_state.user_role == "student":
             for subj_key in SUBJECTS.keys():
                 for lang_key in LANGUAGES.keys():
@@ -1312,7 +1297,6 @@ def render_developer_panel():
 
     tab1, tab2 = st.tabs([T('manage_lessons'), T('manage_questions')])
 
-    # --- إدارة الدروس ---
     with tab1:
         st.markdown(f"### {T('add_lesson')}")
 
@@ -1351,7 +1335,6 @@ def render_developer_panel():
         st.markdown("---")
         st.markdown(f"### {T('manage_lessons')}")
 
-        # عرض كل دروس المنصة
         found_any = False
         for subj_key in SUBJECTS.keys():
             for lang_key in LANGUAGES.keys():
@@ -1377,11 +1360,9 @@ def render_developer_panel():
         if not found_any:
             st.info(T('no_custom_lessons'))
 
-    # --- إدارة الأسئلة ---
     with tab2:
         st.markdown(f"### {T('add_question')}")
 
-        # جمع كل دروس المنصة
         all_lessons = []
         for subj_key in SUBJECTS.keys():
             for lang_key in LANGUAGES.keys():
@@ -1518,13 +1499,11 @@ with st.sidebar:
         st.session_state.selected_lesson = None
         st.rerun()
 
-    # 📁 ملفاتي — للتلميذ فقط
     if st.session_state.user_role == "student":
         if st.button(T('my_files'), use_container_width=True):
             st.session_state.page = "my_files"
             st.rerun()
 
-    # ⚙️ لوحة المطور
     if st.session_state.user_role == "developer":
         if st.button(T('developer'), use_container_width=True):
             st.session_state.page = "developer"
