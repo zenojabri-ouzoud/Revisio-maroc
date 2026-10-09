@@ -8,22 +8,32 @@ import time
 import json
 import datetime
 from pathlib import Path
-
+import re
+import io
+import html
 # ============================================================
 # 3AC RevisioMaroc — Application éducative complète
 # ============================================================
+import streamlit as st
+import hashlib
+import sqlite3
+import os
+import base64
+import random
+import time
+import json
+import math
+import re
+from datetime import datetime, timedelta
+from pathlib import Path
 
-APP_NAME = "3AC RevisioMaroc"
-DB_PATH = "revisiomaroc.db"
-UPLOAD_DIR = "uploads"
-os.makedirs(UPLOAD_DIR, exist_ok=True)
+# ============================================================
+# CONSTANTS
+# ============================================================
 
-st.set_page_config(
-    page_title=APP_NAME,
-    page_icon="📚",
-    layout="wide",
-    initial_sidebar_state="expanded",
-)
+DB_NAME = "revisiomaroc.db"
+UPLOAD_DIR = Path("uploads")
+UPLOAD_DIR.mkdir(exist_ok=True)
 
 SUBJECTS = {
     "maths": {"name": "الرياضيات", "icon": "📐", "color": "#4A90E2"},
@@ -36,61 +46,17 @@ SUBJECTS = {
 }
 
 THEMES = {
-    "⚽ FC Barcelona": {
-        "bg": "#0A1E3F", "card": "#1A2F5C", "text": "#F0F8FF",
-        "accent": "#A50044", "secondary": "#0F2A52",
-        "border": "#004D98", "highlight": "#00D26A",
-    },
-    "👑 Real Madrid": {
-        "bg": "#0F1B2D", "card": "#1E2E4A", "text": "#FFFFFF",
-        "accent": "#FEBE10", "secondary": "#0A1421",
-        "border": "#00529F", "highlight": "#FEBE10",
-    },
-    "🦅 الأهلي": {
-        "bg": "#1A0A0A", "card": "#2D1515", "text": "#FFF5F5",
-        "accent": "#E30613", "secondary": "#120505",
-        "border": "#8B0000", "highlight": "#FFD700",
-    },
-    "🌙 Moonlight": {
-        "bg": "#0A0E1A", "card": "#1A1F35", "text": "#E8ECFF",
-        "accent": "#7B9FFF", "secondary": "#050810",
-        "border": "#3D4A7A", "highlight": "#FFE57F",
-    },
-    "🌙 Midnight Purple": {
-        "bg": "#0D0B1F", "card": "#1A1735", "text": "#EDE9FE",
-        "accent": "#A78BFA", "secondary": "#221D4A",
-        "border": "#3D3475", "highlight": "#4ADE80",
-    },
-    "🌊 Ocean Deep": {
-        "bg": "#0A1929", "card": "#132F4C", "text": "#E3F2FD",
-        "accent": "#00B8D4", "secondary": "#0F2537",
-        "border": "#1E4976", "highlight": "#4ADE80",
-    },
-    "📚 Study Mode": {
-        "bg": "#1A1410", "card": "#2D2418", "text": "#FFF8E7",
-        "accent": "#D4A574", "secondary": "#0F0B07",
-        "border": "#5C4A2E", "highlight": "#FFD700",
-    },
-    "🌅 Golden Sunset": {
-        "bg": "#1F1410", "card": "#331F17", "text": "#FFF3E0",
-        "accent": "#FFB74D", "secondary": "#2A1A12",
-        "border": "#5D3A24", "highlight": "#4ADE80",
-    },
-    "🌿 Forest Emerald": {
-        "bg": "#0B1F14", "card": "#143728", "text": "#E8F5E9",
-        "accent": "#4ADE80", "secondary": "#0F2A1D",
-        "border": "#1E5C3D", "highlight": "#00D26A",
-    },
-    "☀️ Light Mode": {
-        "bg": "#F5F7FA", "card": "#FFFFFF", "text": "#1A202C",
-        "accent": "#4A90E2", "secondary": "#E2E8F0",
-        "border": "#CBD5E0", "highlight": "#38A169",
-    },
-    "🌌 Galaxy": {
-        "bg": "#0D0221", "card": "#1A0533", "text": "#E8D5FF",
-        "accent": "#C77DFF", "secondary": "#050011",
-        "border": "#7209B7", "highlight": "#4CC9F0",
-    },
+    "fcb": {"name": "⚽ FC Barcelona", "bg": "#0A1E3F", "card": "#1A2F5C", "text": "#F0F8FF", "accent": "#A50044", "secondary": "#0F2A52", "border": "#004D98", "highlight": "#00D26A"},
+    "real": {"name": "👑 Real Madrid", "bg": "#0F1B2D", "card": "#1E2E4A", "text": "#FFFFFF", "accent": "#FEBE10", "secondary": "#0A1421", "border": "#00529F", "highlight": "#FEBE10"},
+    "ahly": {"name": "🦅 الأهلي", "bg": "#1A0A0A", "card": "#2D1515", "text": "#FFF5F5", "accent": "#E30613", "secondary": "#120505", "border": "#8B0000", "highlight": "#FFD700"},
+    "moon": {"name": "🌙 Moonlight", "bg": "#0A0E1A", "card": "#1A1F35", "text": "#E8ECFF", "accent": "#7B9FFF", "secondary": "#050810", "border": "#3D4A7A", "highlight": "#FFE57F"},
+    "purple": {"name": "🌙 Midnight Purple", "bg": "#0D0B1F", "card": "#1A1735", "text": "#EDE9FE", "accent": "#A78BFA", "secondary": "#221D4A", "border": "#3D3475", "highlight": "#4ADE80"},
+    "ocean": {"name": "🌊 Ocean Deep", "bg": "#0A1929", "card": "#132F4C", "text": "#E3F2FD", "accent": "#00B8D4", "secondary": "#0F2537", "border": "#1E4976", "highlight": "#4ADE80"},
+    "study": {"name": "📚 Study Mode", "bg": "#1A1410", "card": "#2D2418", "text": "#FFF8E7", "accent": "#D4A574", "secondary": "#0F0B07", "border": "#5C4A2E", "highlight": "#FFD700"},
+    "sunset": {"name": "🌅 Golden Sunset", "bg": "#1F1410", "card": "#331F17", "text": "#FFF3E0", "accent": "#FFB74D", "secondary": "#2A1A12", "border": "#5D3A24", "highlight": "#4ADE80"},
+    "forest": {"name": "🌿 Forest Emerald", "bg": "#0B1F14", "card": "#143728", "text": "#E8F5E9", "accent": "#4ADE80", "secondary": "#0F2A1D", "border": "#1E5C3D", "highlight": "#00D26A"},
+    "light": {"name": "☀️ Light Mode", "bg": "#F5F7FA", "card": "#FFFFFF", "text": "#1A202C", "accent": "#4A90E2", "secondary": "#E2E8F0", "border": "#CBD5E0", "highlight": "#38A169"},
+    "galaxy": {"name": "🌌 Galaxy", "bg": "#0D0221", "card": "#1A0533", "text": "#E8D5FF", "accent": "#C77DFF", "secondary": "#050011", "border": "#7209B7", "highlight": "#4CC9F0"},
 }
 
 BADGES = {
@@ -108,1019 +74,1234 @@ BADGES = {
     "all_subjects": "🎓 الموسوعي",
     "streak_7": "🔥 أسبوع كامل",
     "streak_30": "🌋 شهر كامل",
+    "speed_demon": "⚡ البرق",
+    "night_owl": "🦉 بومة الليل",
+    "early_bird": "🐦 طائر الصباح",
+    "perfectionist": "✨ المثالي",
+    "social_butterfly": "🦋 اجتماعي",
+    "note_master": "📝 سيد الملاحظات",
+    "flashcard_king": "🃏 ملك البطاقات",
+    "comeback": "🔄 العودة القوية",
+    "marathon": "🏃 ماراثوني",
+    "weekend_warrior": "⚔️ محارب الأسبوع",
 }
 
-RANKS = {
-    1: "🌱 مبتدئ",
-    3: "📖 متعلّم",
-    5: "🎯 مجتهد",
-    8: "⭐ متميز",
-    12: "🏅 متفوق",
-    20: "👑 خبير",
-    35: "🏆 أسطورة",
-    50: "🌟 أسطورة حية",
-}
+RANKS = [
+    (50, "🌟 أسطورة حية"),
+    (35, "🏆 أسطورة"),
+    (20, "👑 خبير"),
+    (12, "🏅 متفوق"),
+    (8, "⭐ متميز"),
+    (5, "🎯 مجتهد"),
+    (3, "📖 متعلّم"),
+    (1, "🌱 مبتدئ"),
+]
 
 TRANSLATIONS = {
     "ar": {
-        "home": "الرئيسية", "lessons": "الدروس", "quiz": "الاختبارات",
-        "review": "مراجعة سريعة", "flashcards": "بطاقات الحفظ",
-        "plan": "خطة المراجعة", "friends": "الأصدقاء",
-        "leaderboard": "لوحة المتصدرين", "report": "التقرير الأسبوعي",
-        "notifications": "الإشعارات", "stats": "إحصائياتي",
-        "favorites": "المفضلة", "developer": "لوحة المطور",
-        "logout": "تسجيل الخروج", "language": "اللغة",
-        "theme": "الثيم", "profile": "الملف الشخصي",
+        "home": "الرئيسية", "lessons": "الدروس", "quiz": "الاختبار", "quick_review": "مراجعة سريعة",
+        "flashcards": "بطاقات تعليمية", "study_plan": "خطة الدراسة", "friends": "الأصدقاء",
+        "leaderboard": "المتصدرون", "weekly_report": "التقرير الأسبوعي", "notifications": "الإشعارات",
+        "my_stats": "إحصائياتي", "favorites": "المفضلة", "developer": "لوحة المطور",
+        "logout": "تسجيل الخروج", "theme": "الثيم", "language": "اللغة",
+        "profile": "الملف الشخصي", "login": "دخول", "register": "تسجيل", "student": "تلميذ",
+        "welcome": "مرحباً", "points": "النقاط", "level": "المستوى", "quizzes": "الاختبارات",
+        "perfect_scores": "العلامات الكاملة", "badges": "الشارات", "rank": "اللقب",
+        "start_quiz": "ابدأ الاختبار", "score": "النتيجة", "correct": "صحيح", "wrong": "خطأ",
+        "submit": "إرسال", "next": "التالي", "previous": "السابق", "time_left": "الوقت المتبقي",
+        "search": "بحث", "all": "الكل", "add": "إضافة", "delete": "حذف", "save": "حفظ",
+        "cancel": "إلغاء", "comments": "تعليقات", "rating": "تقييم", "notes": "ملاحظات",
+        "discussion": "مناقشة", "reviews": "تقييمات", "no_data": "لا توجد بيانات",
+        "daily_bonus": "مكافأة يومية", "streak": "سلسلة", "leaderboard_all": "الكل",
+        "leaderboard_week": "هذا الأسبوع", "leaderboard_month": "هذا الشهر",
+        "weaknesses": "نقاط الضعف", "strong_points": "نقاط القوة",
+        "subject_stats": "إحصائيات المواد", "weekly_progress": "التقدم الأسبوعي",
+        "complete": "مكتمل", "pending": "قيد الانتظار", "priority": "الأولوية",
+        "target_date": "التاريخ المستهدف", "auto_generate": "توليد تلقائي",
+        "add_friend": "إضافة صديق", "friend_username": "اسم المستخدم",
+        "remove": "إزالة", "accept": "قبول", "reject": "رفض", "known": "معروف",
+        "unknown": "غير معروف", "front": "الوجه", "back": "الظهر",
+        "add_flashcard": "إضافة بطاقة", "subject": "المادة", "title": "العنوان",
+        "content": "المحتوى", "image_url": "رابط الصورة", "pdf_url": "رابط PDF",
+        "question": "السؤال", "option_a": "الخيار أ", "option_b": "الخيار ب",
+        "option_c": "الخيار ج", "option_d": "الخيار د", "correct_answer": "الإجابة الصحيحة",
+        "explanation": "الشرح", "add_lesson": "إضافة درس", "add_question": "إضافة سؤال",
+        "lesson": "الدرس", "questions": "الأسئلة", "no_questions": "لا توجد أسئلة",
+        "login_student": "دخول التلميذ", "login_developer": "دخول المطور",
+        "register_new": "تسجيل جديد", "username": "اسم المستخدم",
+        "password": "كلمة المرور", "full_name": "الاسم الكامل",
+        "already_have": "لديك حساب؟", "no_account": "ليس لديك حساب؟",
+        "error_login": "خطأ في تسجيل الدخول", "success_register": "تم التسجيل بنجاح",
+        "error_register": "خطأ في التسجيل", "welcome_back": "مرحباً بعودتك",
     },
     "fr": {
-        "home": "Accueil", "lessons": "Leçons", "quiz": "Quiz",
-        "review": "Révision rapide", "flashcards": "Flashcards",
-        "plan": "Plan d'étude", "friends": "Amis",
-        "leaderboard": "Classement", "report": "Rapport hebdomadaire",
-        "notifications": "Notifications", "stats": "Mes statistiques",
-        "favorites": "Favoris", "developer": "Panneau développeur",
-        "logout": "Déconnexion", "language": "Langue",
-        "theme": "Thème", "profile": "Profil",
+        "home": "Accueil", "lessons": "Leçons", "quiz": "Quiz", "quick_review": "Révision rapide",
+        "flashcards": "Cartes", "study_plan": "Plan d'étude", "friends": "Amis",
+        "leaderboard": "Classement", "weekly_report": "Rapport hebdo", "notifications": "Notifications",
+        "my_stats": "Mes stats", "favorites": "Favoris", "developer": "Panneau dev",
+        "logout": "Déconnexion", "theme": "Thème", "language": "Langue",
+        "profile": "Profil", "login": "Connexion", "register": "Inscription", "student": "Élève",
+        "welcome": "Bienvenue", "points": "Points", "level": "Niveau", "quizzes": "Quiz",
+        "perfect_scores": "Scores parfaits", "badges": "Badges", "rank": "Rang",
+        "start_quiz": "Commencer", "score": "Score", "correct": "Correct", "wrong": "Faux",
+        "submit": "Envoyer", "next": "Suivant", "previous": "Précédent", "time_left": "Temps restant",
+        "search": "Recherche", "all": "Tout", "add": "Ajouter", "delete": "Supprimer", "save": "Sauver",
+        "cancel": "Annuler", "comments": "Commentaires", "rating": "Note", "notes": "Notes",
+        "discussion": "Discussion", "reviews": "Avis", "no_data": "Aucune donnée",
+        "daily_bonus": "Bonus quotidien", "streak": "Série", "leaderboard_all": "Tout",
+        "leaderboard_week": "Cette semaine", "leaderboard_month": "Ce mois",
+        "weaknesses": "Points faibles", "strong_points": "Points forts",
+        "subject_stats": "Stats par matière", "weekly_progress": "Progrès hebdo",
+        "complete": "Terminé", "pending": "En attente", "priority": "Priorité",
+        "target_date": "Date cible", "auto_generate": "Générer auto",
+        "add_friend": "Ajouter ami", "friend_username": "Nom d'utilisateur",
+        "remove": "Retirer", "accept": "Accepter", "reject": "Refuser", "known": "Connu",
+        "unknown": "Inconnu", "front": "Recto", "back": "Verso",
+        "add_flashcard": "Ajouter carte", "subject": "Matière", "title": "Titre",
+        "content": "Contenu", "image_url": "URL image", "pdf_url": "URL PDF",
+        "question": "Question", "option_a": "Option A", "option_b": "Option B",
+        "option_c": "Option C", "option_d": "Option D", "correct_answer": "Réponse correcte",
+        "explanation": "Explication", "add_lesson": "Ajouter leçon", "add_question": "Ajouter question",
+        "lesson": "Leçon", "questions": "Questions", "no_questions": "Aucune question",
+        "login_student": "Connexion élève", "login_developer": "Connexion dev",
+        "register_new": "Inscription", "username": "Nom d'utilisateur",
+        "password": "Mot de passe", "full_name": "Nom complet",
+        "already_have": "Déjà un compte?", "no_account": "Pas de compte?",
+        "error_login": "Erreur de connexion", "success_register": "Inscription réussie",
+        "error_register": "Erreur d'inscription", "welcome_back": "Bon retour",
     },
     "en": {
-        "home": "Home", "lessons": "Lessons", "quiz": "Quizzes",
-        "review": "Quick review", "flashcards": "Flashcards",
-        "plan": "Study plan", "friends": "Friends",
-        "leaderboard": "Leaderboard", "report": "Weekly report",
-        "notifications": "Notifications", "stats": "My statistics",
-        "favorites": "Favorites", "developer": "Developer panel",
-        "logout": "Log out", "language": "Language",
-        "theme": "Theme", "profile": "Profile",
+        "home": "Home", "lessons": "Lessons", "quiz": "Quiz", "quick_review": "Quick Review",
+        "flashcards": "Flashcards", "study_plan": "Study Plan", "friends": "Friends",
+        "leaderboard": "Leaderboard", "weekly_report": "Weekly Report", "notifications": "Notifications",
+        "my_stats": "My Stats", "favorites": "Favorites", "developer": "Developer Panel",
+        "logout": "Logout", "theme": "Theme", "language": "Language",
+        "profile": "Profile", "login": "Login", "register": "Register", "student": "Student",
+        "welcome": "Welcome", "points": "Points", "level": "Level", "quizzes": "Quizzes",
+        "perfect_scores": "Perfect Scores", "badges": "Badges", "rank": "Rank",
+        "start_quiz": "Start Quiz", "score": "Score", "correct": "Correct", "wrong": "Wrong",
+        "submit": "Submit", "next": "Next", "previous": "Previous", "time_left": "Time Left",
+        "search": "Search", "all": "All", "add": "Add", "delete": "Delete", "save": "Save",
+        "cancel": "Cancel", "comments": "Comments", "rating": "Rating", "notes": "Notes",
+        "discussion": "Discussion", "reviews": "Reviews", "no_data": "No data",
+        "daily_bonus": "Daily Bonus", "streak": "Streak", "leaderboard_all": "All",
+        "leaderboard_week": "This Week", "leaderboard_month": "This Month",
+        "weaknesses": "Weaknesses", "strong_points": "Strong Points",
+        "subject_stats": "Subject Stats", "weekly_progress": "Weekly Progress",
+        "complete": "Complete", "pending": "Pending", "priority": "Priority",
+        "target_date": "Target Date", "auto_generate": "Auto Generate",
+        "add_friend": "Add Friend", "friend_username": "Username",
+        "remove": "Remove", "accept": "Accept", "reject": "Reject", "known": "Known",
+        "unknown": "Unknown", "front": "Front", "back": "Back",
+        "add_flashcard": "Add Flashcard", "subject": "Subject", "title": "Title",
+        "content": "Content", "image_url": "Image URL", "pdf_url": "PDF URL",
+        "question": "Question", "option_a": "Option A", "option_b": "Option B",
+        "option_c": "Option C", "option_d": "Option D", "correct_answer": "Correct Answer",
+        "explanation": "Explanation", "add_lesson": "Add Lesson", "add_question": "Add Question",
+        "lesson": "Lesson", "questions": "Questions", "no_questions": "No questions",
+        "login_student": "Student Login", "login_developer": "Developer Login",
+        "register_new": "Register", "username": "Username",
+        "password": "Password", "full_name": "Full Name",
+        "already_have": "Already have an account?", "no_account": "No account?",
+        "error_login": "Login error", "success_register": "Registration successful",
+        "error_register": "Registration error", "welcome_back": "Welcome back",
     },
 }
 
-
 # ============================================================
-# DATABASE
+# DATABASE FUNCTIONS
 # ============================================================
 
 def get_db():
-    conn = sqlite3.connect(DB_PATH, timeout=15)
+    conn = sqlite3.connect(DB_NAME, check_same_thread=False)
     conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA foreign_keys = ON")
     return conn
 
+def init_db():
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("""CREATE TABLE IF NOT EXISTS users (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        username TEXT UNIQUE NOT NULL,
+        password_hash TEXT NOT NULL,
+        role TEXT DEFAULT 'student',
+        full_name TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )""")
+    c.execute("""CREATE TABLE IF NOT EXISTS lessons (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        subject TEXT NOT NULL,
+        language TEXT DEFAULT 'ar',
+        title TEXT NOT NULL,
+        content TEXT,
+        image_url TEXT,
+        pdf_url TEXT,
+        owner TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )""")
+    c.execute("""CREATE TABLE IF NOT EXISTS questions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        lesson_id INTEGER NOT NULL,
+        question TEXT NOT NULL,
+        option_a TEXT NOT NULL,
+        option_b TEXT NOT NULL,
+        option_c TEXT NOT NULL,
+        option_d TEXT NOT NULL,
+        correct_answer TEXT NOT NULL,
+        explanation TEXT,
+        FOREIGN KEY (lesson_id) REFERENCES lessons(id)
+    )""")
+    c.execute("""CREATE TABLE IF NOT EXISTS quiz_history (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        username TEXT NOT NULL,
+        lesson_id INTEGER,
+        lesson_title TEXT,
+        subject TEXT,
+        score INTEGER,
+        total INTEGER,
+        percent REAL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )""")
+    c.execute("""CREATE TABLE IF NOT EXISTS favorites (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        username TEXT NOT NULL,
+        lesson_id INTEGER NOT NULL,
+        UNIQUE(username, lesson_id)
+    )""")
+    c.execute("""CREATE TABLE IF NOT EXISTS user_stats (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        username TEXT UNIQUE NOT NULL,
+        total_points INTEGER DEFAULT 0,
+        level INTEGER DEFAULT 1,
+        quizzes_taken INTEGER DEFAULT 0,
+        perfect_scores INTEGER DEFAULT 0,
+        unique_subjects INTEGER DEFAULT 0,
+        badges TEXT DEFAULT '[]',
+        last_daily TEXT,
+        streak INTEGER DEFAULT 0
+    )""")
+    c.execute("""CREATE TABLE IF NOT EXISTS reviews (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        lesson_id INTEGER NOT NULL,
+        username TEXT NOT NULL,
+        rating INTEGER,
+        comment TEXT,
+        UNIQUE(lesson_id, username)
+    )""")
+    c.execute("""CREATE TABLE IF NOT EXISTS messages (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        lesson_id INTEGER NOT NULL,
+        username TEXT NOT NULL,
+        message TEXT NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )""")
+    c.execute("""CREATE TABLE IF NOT EXISTS notifications (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        username TEXT NOT NULL,
+        title TEXT,
+        message TEXT,
+        icon TEXT DEFAULT '🔔',
+        is_read INTEGER DEFAULT 0,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )""")
+    c.execute("""CREATE TABLE IF NOT EXISTS flashcards (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        username TEXT NOT NULL,
+        subject TEXT,
+        front TEXT NOT NULL,
+        back TEXT NOT NULL,
+        known INTEGER DEFAULT 0
+    )""")
+    c.execute("""CREATE TABLE IF NOT EXISTS notes (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        username TEXT NOT NULL,
+        lesson_id INTEGER NOT NULL,
+        note TEXT NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )""")
+    c.execute("""CREATE TABLE IF NOT EXISTS friends (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        username TEXT NOT NULL,
+        friend_username TEXT NOT NULL,
+        status TEXT DEFAULT 'pending',
+        UNIQUE(username, friend_username)
+    )""")
+    c.execute("""CREATE TABLE IF NOT EXISTS study_plan (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        username TEXT NOT NULL,
+        subject TEXT NOT NULL,
+        priority TEXT DEFAULT 'medium',
+        target_date TEXT,
+        completed INTEGER DEFAULT 0
+    )""")
+    dev_hash = hash_password("soufiane2030")
+    c.execute("SELECT id FROM users WHERE username = ?", ("soufianeDEV",))
+    if not c.fetchone():
+        c.execute("INSERT INTO users (username, password_hash, role, full_name) VALUES (?, ?, ?, ?)",
+                  ("soufianeDEV", dev_hash, "developer", "Soufiane Ouhazza"))
+    conn.commit()
+    conn.close()
 
 def hash_password(p):
-    return hashlib.sha256(p.encode("utf-8")).hexdigest()
-
-
-def init_db():
-    with get_db() as conn:
-        conn.executescript("""
-        CREATE TABLE IF NOT EXISTS users (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            username TEXT UNIQUE NOT NULL,
-            password_hash TEXT NOT NULL,
-            role TEXT NOT NULL DEFAULT 'student',
-            full_name TEXT NOT NULL DEFAULT '',
-            created_at TEXT NOT NULL
-        );
-
-        CREATE TABLE IF NOT EXISTS lessons (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            subject TEXT NOT NULL,
-            language TEXT NOT NULL DEFAULT 'ar',
-            title TEXT NOT NULL,
-            content TEXT NOT NULL,
-            image_url TEXT DEFAULT '',
-            pdf_url TEXT DEFAULT '',
-            owner TEXT NOT NULL,
-            created_at TEXT NOT NULL
-        );
-
-        CREATE TABLE IF NOT EXISTS questions (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            lesson_id INTEGER NOT NULL,
-            question TEXT NOT NULL,
-            option_a TEXT NOT NULL,
-            option_b TEXT NOT NULL,
-            option_c TEXT NOT NULL DEFAULT '',
-            option_d TEXT NOT NULL DEFAULT '',
-            correct_answer TEXT NOT NULL,
-            explanation TEXT DEFAULT '',
-            FOREIGN KEY (lesson_id) REFERENCES lessons(id) ON DELETE CASCADE
-        );
-
-        CREATE TABLE IF NOT EXISTS quiz_history (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            username TEXT NOT NULL,
-            lesson_id INTEGER,
-            lesson_title TEXT NOT NULL DEFAULT '',
-            subject TEXT NOT NULL DEFAULT '',
-            score INTEGER NOT NULL,
-            total INTEGER NOT NULL,
-            percent REAL NOT NULL,
-            created_at TEXT NOT NULL
-        );
-
-        CREATE TABLE IF NOT EXISTS favorites (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            username TEXT NOT NULL,
-            lesson_id INTEGER NOT NULL,
-            UNIQUE(username, lesson_id)
-        );
-
-        CREATE TABLE IF NOT EXISTS user_stats (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            username TEXT UNIQUE NOT NULL,
-            total_points INTEGER NOT NULL DEFAULT 0,
-            level INTEGER NOT NULL DEFAULT 1,
-            quizzes_taken INTEGER NOT NULL DEFAULT 0,
-            perfect_scores INTEGER NOT NULL DEFAULT 0,
-            unique_subjects TEXT NOT NULL DEFAULT '[]',
-            badges TEXT NOT NULL DEFAULT '[]',
-            last_daily TEXT NOT NULL DEFAULT '',
-            streak INTEGER NOT NULL DEFAULT 0
-        );
-
-        CREATE TABLE IF NOT EXISTS reviews (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            lesson_id INTEGER NOT NULL,
-            username TEXT NOT NULL,
-            rating INTEGER NOT NULL CHECK(rating BETWEEN 1 AND 5),
-            comment TEXT DEFAULT '',
-            UNIQUE(lesson_id, username),
-            FOREIGN KEY (lesson_id) REFERENCES lessons(id) ON DELETE CASCADE
-        );
-
-        CREATE TABLE IF NOT EXISTS messages (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            lesson_id INTEGER NOT NULL,
-            username TEXT NOT NULL,
-            message TEXT NOT NULL,
-            created_at TEXT NOT NULL DEFAULT '',
-            FOREIGN KEY (lesson_id) REFERENCES lessons(id) ON DELETE CASCADE
-        );
-
-        CREATE TABLE IF NOT EXISTS notifications (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            username TEXT NOT NULL,
-            title TEXT NOT NULL,
-            message TEXT NOT NULL,
-            icon TEXT NOT NULL DEFAULT '🔔',
-            is_read INTEGER NOT NULL DEFAULT 0
-        );
-
-        CREATE TABLE IF NOT EXISTS flashcards (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            username TEXT NOT NULL,
-            subject TEXT NOT NULL,
-            front TEXT NOT NULL,
-            back TEXT NOT NULL,
-            known INTEGER NOT NULL DEFAULT 0
-        );
-
-        CREATE TABLE IF NOT EXISTS notes (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            username TEXT NOT NULL,
-            lesson_id INTEGER NOT NULL,
-            note TEXT NOT NULL,
-            created_at TEXT NOT NULL DEFAULT '',
-            FOREIGN KEY (lesson_id) REFERENCES lessons(id) ON DELETE CASCADE
-        );
-
-        CREATE TABLE IF NOT EXISTS friends (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            username TEXT NOT NULL,
-            friend_username TEXT NOT NULL,
-            status TEXT NOT NULL DEFAULT 'pending',
-            UNIQUE(username, friend_username)
-        );
-
-        CREATE TABLE IF NOT EXISTS study_plan (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            username TEXT NOT NULL,
-            subject TEXT NOT NULL,
-            priority TEXT NOT NULL DEFAULT 'normal',
-            target_date TEXT NOT NULL,
-            completed INTEGER NOT NULL DEFAULT 0
-        );
-        """)
-
-        # Developer account: created automatically if absent.
-        conn.execute("""
-            INSERT OR IGNORE INTO users
-            (username, password_hash, role, full_name, created_at)
-            VALUES (?, ?, 'developer', ?, ?)
-        """, (
-            "soufianeDEV",
-            hash_password("soufiane2030"),
-            "Soufiane Ouhazza",
-            datetime.datetime.now().isoformat(timespec="seconds"),
-        ))
-
-        conn.execute("""
-            INSERT OR IGNORE INTO user_stats (username) VALUES (?)
-        """, ("soufianeDEV",))
-
+    return hashlib.sha256(p.encode()).hexdigest()
 
 def register_user(u, p, n):
-    u = u.strip()
-    n = n.strip()
-    if len(u) < 3 or len(p) < 6 or not n:
-        return False, "اسم المستخدم يجب أن يتكون من 3 أحرف على الأقل، وكلمة المرور من 6 أحرف."
+    conn = get_db()
+    c = conn.cursor()
     try:
-        with get_db() as conn:
-            conn.execute("""
-                INSERT INTO users(username, password_hash, role, full_name, created_at)
-                VALUES (?, ?, 'student', ?, ?)
-            """, (
-                u, hash_password(p), n,
-                datetime.datetime.now().isoformat(timespec="seconds"),
-            ))
-            conn.execute("INSERT INTO user_stats(username) VALUES (?)", (u,))
-        return True, "تم إنشاء الحساب بنجاح."
+        c.execute("INSERT INTO users (username, password_hash, role, full_name) VALUES (?, ?, ?, ?)",
+                  (u, hash_password(p), "student", n))
+        c.execute("INSERT INTO user_stats (username) VALUES (?)", (u,))
+        conn.commit()
+        conn.close()
+        return True
     except sqlite3.IntegrityError:
-        return False, "اسم المستخدم مستعمل بالفعل."
-
+        conn.close()
+        return False
 
 def authenticate(u, p):
-    with get_db() as conn:
-        row = conn.execute("""
-            SELECT username, password_hash, role, full_name
-            FROM users WHERE username = ?
-        """, (u.strip(),)).fetchone()
-    if row and row["password_hash"] == hash_password(p):
-        return dict(row)
-    return None
-
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("SELECT * FROM users WHERE username = ? AND password_hash = ?", (u, hash_password(p)))
+    user = c.fetchone()
+    conn.close()
+    return user
 
 def get_user_stats(u):
-    with get_db() as conn:
-        row = conn.execute(
-            "SELECT * FROM user_stats WHERE username = ?", (u,)
-        ).fetchone()
-        if row:
-            return dict(row)
-        conn.execute("INSERT OR IGNORE INTO user_stats(username) VALUES (?)", (u,))
-        row = conn.execute(
-            "SELECT * FROM user_stats WHERE username = ?", (u,)
-        ).fetchone()
-        return dict(row)
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("SELECT * FROM user_stats WHERE username = ?", (u,))
+    row = c.fetchone()
+    if not row:
+        c.execute("INSERT INTO user_stats (username) VALUES (?)", (u,))
+        conn.commit()
+        c.execute("SELECT * FROM user_stats WHERE username = ?", (u,))
+        row = c.fetchone()
+    conn.close()
+    return row
 
-
-def update_user_stats(u, points, quiz, perfect, subject):
-    with get_db() as conn:
-        conn.execute("INSERT OR IGNORE INTO user_stats(username) VALUES (?)", (u,))
-        row = conn.execute(
-            "SELECT * FROM user_stats WHERE username = ?", (u,)
-        ).fetchone()
-
-        subjects = json.loads(row["unique_subjects"] or "[]")
-        if subject and subject not in subjects:
-            subjects.append(subject)
-
-        total_points = int(row["total_points"]) + int(points)
-        quizzes = int(row["quizzes_taken"]) + (1 if quiz else 0)
-        perfect_scores = int(row["perfect_scores"]) + (1 if perfect else 0)
-        level = total_points // 100 + 1
-
-        conn.execute("""
-            UPDATE user_stats
-            SET total_points=?, level=?, quizzes_taken=?, perfect_scores=?,
-                unique_subjects=?
-            WHERE username=?
-        """, (
-            total_points, level, quizzes, perfect_scores,
-            json.dumps(subjects, ensure_ascii=False), u,
-        ))
-
+def update_user_stats(u, points=0, quiz=False, perfect=False, subject=None):
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("SELECT * FROM user_stats WHERE username = ?", (u,))
+    row = c.fetchone()
+    if not row:
+        c.execute("INSERT INTO user_stats (username) VALUES (?)", (u,))
+        conn.commit()
+        c.execute("SELECT * FROM user_stats WHERE username = ?", (u,))
+        row = c.fetchone()
+    total_points = row["total_points"] + points
+    level = total_points // 100 + 1
+    quizzes_taken = row["quizzes_taken"] + (1 if quiz else 0)
+    perfect_scores = row["perfect_scores"] + (1 if perfect else 0)
+    subjects = set()
+    c.execute("SELECT DISTINCT subject FROM quiz_history WHERE username = ?", (u,))
+    for r in c.fetchall():
+        if r["subject"]:
+            subjects.add(r["subject"])
+    if subject:
+        subjects.add(subject)
+    unique_subjects = len(subjects)
+    c.execute("""UPDATE user_stats SET total_points=?, level=?, quizzes_taken=?,
+                 perfect_scores=?, unique_subjects=? WHERE username=?""",
+              (total_points, level, quizzes_taken, perfect_scores, unique_subjects, u))
+    conn.commit()
+    conn.close()
     check_badges(u)
 
-
-def save_quiz_result(username, lesson_id, lesson_title, subject, score, total):
-    percent = round((score / total) * 100, 2) if total else 0
-    with get_db() as conn:
-        conn.execute("""
-            INSERT INTO quiz_history
-            (username, lesson_id, lesson_title, subject, score, total, percent, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        """, (
-            username, lesson_id, lesson_title, subject, score, total,
-            percent, datetime.datetime.now().isoformat(timespec="seconds"),
-        ))
-    update_user_stats(
-        username, score * 10, True, bool(total and score == total), subject
-    )
-    if total and score == total:
-        add_notification(username, "علامة كاملة!", "أجبت عن جميع الأسئلة بشكل صحيح.", "💯")
-    return percent
-
+def save_quiz_result(username, lesson_id, lesson_title, subject, score, total, percent):
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("""INSERT INTO quiz_history (username, lesson_id, lesson_title, subject, score, total, percent)
+                 VALUES (?, ?, ?, ?, ?, ?, ?)""",
+              (username, lesson_id, lesson_title, subject, score, total, percent))
+    conn.commit()
+    conn.close()
 
 def get_quiz_history(u, limit=20):
-    with get_db() as conn:
-        rows = conn.execute("""
-            SELECT * FROM quiz_history WHERE username=?
-            ORDER BY id DESC LIMIT ?
-        """, (u, int(limit))).fetchall()
-    return [dict(r) for r in rows]
-
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("SELECT * FROM quiz_history WHERE username = ? ORDER BY created_at DESC LIMIT ?", (u, limit))
+    rows = c.fetchall()
+    conn.close()
+    return rows
 
 def get_subject_stats(u):
-    with get_db() as conn:
-        rows = conn.execute("""
-            SELECT subject, COUNT(*) AS quizzes, AVG(percent) AS average,
-                   MAX(percent) AS best
-            FROM quiz_history WHERE username=?
-            GROUP BY subject ORDER BY average ASC
-        """, (u,)).fetchall()
-    return [dict(r) for r in rows]
-
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("""SELECT subject, COUNT(*) as cnt, AVG(percent) as avg_pct, MAX(percent) as max_pct
+                 FROM quiz_history WHERE username = ? GROUP BY subject""", (u,))
+    rows = c.fetchall()
+    conn.close()
+    return rows
 
 def get_weaknesses(u):
-    return [r for r in get_subject_stats(u) if r["average"] is not None and r["average"] < 70]
-
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("""SELECT subject, AVG(percent) as avg_pct FROM quiz_history
+                 WHERE username = ? GROUP BY subject HAVING avg_pct < 60 ORDER BY avg_pct ASC""", (u,))
+    rows = c.fetchall()
+    conn.close()
+    return rows
 
 def get_leaderboard(period="all"):
-    with get_db() as conn:
-        if period == "week":
-            cutoff = (datetime.datetime.now() - datetime.timedelta(days=7)).isoformat()
-            rows = conn.execute("""
-                SELECT username, SUM(score*10) AS points, COUNT(*) AS quizzes,
-                       AVG(percent) AS average
-                FROM quiz_history WHERE created_at >= ?
-                GROUP BY username ORDER BY points DESC LIMIT 50
-            """, (cutoff,)).fetchall()
-        elif period == "month":
-            cutoff = (datetime.datetime.now() - datetime.timedelta(days=30)).isoformat()
-            rows = conn.execute("""
-                SELECT username, SUM(score*10) AS points, COUNT(*) AS quizzes,
-                       AVG(percent) AS average
-                FROM quiz_history WHERE created_at >= ?
-                GROUP BY username ORDER BY points DESC LIMIT 50
-            """, (cutoff,)).fetchall()
-        else:
-            rows = conn.execute("""
-                SELECT username, total_points AS points,
-                       quizzes_taken AS quizzes, total_points AS average
-                FROM user_stats ORDER BY total_points DESC LIMIT 50
-            """).fetchall()
-    return [dict(r) for r in rows]
-
+    conn = get_db()
+    c = conn.cursor()
+    if period == "week":
+        since = (datetime.now() - timedelta(days=7)).strftime("%Y-%m-%d")
+        c.execute("""SELECT u.username, u.full_name, COALESCE(SUM(q.score),0) as pts
+                     FROM users u LEFT JOIN quiz_history q ON u.username=q.username
+                     WHERE q.created_at >= ? GROUP BY u.username ORDER BY pts DESC LIMIT 50""", (since,))
+    elif period == "month":
+        since = (datetime.now() - timedelta(days=30)).strftime("%Y-%m-%d")
+        c.execute("""SELECT u.username, u.full_name, COALESCE(SUM(q.score),0) as pts
+                     FROM users u LEFT JOIN quiz_history q ON u.username=q.username
+                     WHERE q.created_at >= ? GROUP BY u.username ORDER BY pts DESC LIMIT 50""", (since,))
+    else:
+        c.execute("""SELECT u.username, u.full_name, COALESCE(s.total_points,0) as pts
+                     FROM users u LEFT JOIN user_stats s ON u.username=s.username
+                     ORDER BY pts DESC LIMIT 50""")
+    rows = c.fetchall()
+    conn.close()
+    return rows
 
 def get_weekly_report(u):
-    cutoff = (datetime.datetime.now() - datetime.timedelta(days=7)).isoformat()
-    with get_db() as conn:
-        rows = conn.execute("""
-            SELECT COUNT(*) AS quizzes, COALESCE(SUM(score),0) AS correct,
-                   COALESCE(SUM(total),0) AS questions,
-                   COALESCE(AVG(percent),0) AS average
-            FROM quiz_history WHERE username=? AND created_at>=?
-        """, (u, cutoff)).fetchone()
-    return dict(rows)
-
+    conn = get_db()
+    c = conn.cursor()
+    since = (datetime.now() - timedelta(days=7)).strftime("%Y-%m-%d")
+    c.execute("""SELECT COUNT(*) as cnt, COALESCE(SUM(score),0) as total_score,
+                 COALESCE(AVG(percent),0) as avg_pct FROM quiz_history
+                 WHERE username = ? AND created_at >= ?""", (u, since))
+    row = c.fetchone()
+    conn.close()
+    return row
 
 def check_badges(u):
-    stats = get_user_stats(u)
-    quizzes = stats["quizzes_taken"]
-    level = stats["level"]
-    streak = stats["streak"]
-    subjects = json.loads(stats["unique_subjects"] or "[]")
-    earned = set(json.loads(stats["badges"] or "[]"))
-
-    if quizzes >= 1:
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("SELECT * FROM user_stats WHERE username = ?", (u,))
+    stats = c.fetchone()
+    if not stats:
+        conn.close()
+        return
+    current = json.loads(stats["badges"] or "[]")
+    earned = set(current)
+    if stats["quizzes_taken"] >= 1:
         earned.add("first_quiz")
     if stats["perfect_scores"] >= 1:
         earned.add("perfect")
-    for threshold in (5, 10, 25, 50, 100):
-        if quizzes >= threshold:
-            earned.add(f"{threshold}_quizzes")
-    for threshold in (5, 10, 20, 50):
-        if level >= threshold:
-            earned.add(f"level_{threshold}")
-    if len(subjects) >= len(SUBJECTS):
+    if stats["quizzes_taken"] >= 5:
+        earned.add("5_quizzes")
+    if stats["quizzes_taken"] >= 10:
+        earned.add("10_quizzes")
+    if stats["quizzes_taken"] >= 25:
+        earned.add("25_quizzes")
+    if stats["quizzes_taken"] >= 50:
+        earned.add("50_quizzes")
+    if stats["quizzes_taken"] >= 100:
+        earned.add("100_quizzes")
+    if stats["level"] >= 5:
+        earned.add("level_5")
+    if stats["level"] >= 10:
+        earned.add("level_10")
+    if stats["level"] >= 20:
+        earned.add("level_20")
+    if stats["level"] >= 50:
+        earned.add("level_50")
+    if stats["unique_subjects"] >= 7:
         earned.add("all_subjects")
-    if streak >= 7:
+    if stats["streak"] >= 7:
         earned.add("streak_7")
-    if streak >= 30:
+    if stats["streak"] >= 30:
         earned.add("streak_30")
-
-    old = set(json.loads(stats["badges"] or "[]"))
-    with get_db() as conn:
-        conn.execute(
-            "UPDATE user_stats SET badges=? WHERE username=?",
-            (json.dumps(sorted(earned), ensure_ascii=False), u),
-        )
-
-    for badge in earned - old:
-        if badge in BADGES:
-            add_notification(u, "إنجاز جديد!", BADGES[badge], "🏆")
-    return sorted(earned)
-
+    hour = datetime.now().hour
+    if hour >= 0 and hour < 5:
+        earned.add("night_owl")
+    if hour >= 5 and hour < 7:
+        earned.add("early_bird")
+    conn2 = get_db()
+    c2 = conn2.cursor()
+    c2.execute("SELECT COUNT(*) as cnt FROM notes WHERE username = ?", (u,))
+    if c2.fetchone()["cnt"] >= 10:
+        earned.add("note_master")
+    c2.execute("SELECT COUNT(*) as cnt FROM flashcards WHERE username = ?", (u,))
+    if c2.fetchone()["cnt"] >= 20:
+        earned.add("flashcard_king")
+    c2.execute("SELECT COUNT(*) as cnt FROM friends WHERE username = ? AND status = 'accepted'", (u,))
+    if c2.fetchone()["cnt"] >= 5:
+        earned.add("social_butterfly")
+    c2.execute("SELECT COUNT(*) as cnt FROM quiz_history WHERE username = ? AND percent = 100", (u,))
+    if c2.fetchone()["cnt"] >= 10:
+        earned.add("perfectionist")
+    conn2.close()
+    new_badges = earned - set(current)
+    if new_badges:
+        c.execute("UPDATE user_stats SET badges = ? WHERE username = ?", (json.dumps(list(earned)), u))
+        for b in new_badges:
+            add_notification(u, "شارة جديدة!", BADGES.get(b, b), "🏅")
+        conn.commit()
+    conn.close()
 
 def get_user_badges(u):
     stats = get_user_stats(u)
-    return [BADGES[b] for b in json.loads(stats["badges"] or "[]") if b in BADGES]
-
+    if not stats:
+        return []
+    return json.loads(stats["badges"] or "[]")
 
 def add_notification(u, title, msg, icon="🔔"):
-    with get_db() as conn:
-        conn.execute("""
-            INSERT INTO notifications(username, title, message, icon)
-            VALUES (?, ?, ?, ?)
-        """, (u, title, msg, icon))
-
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("INSERT INTO notifications (username, title, message, icon) VALUES (?, ?, ?, ?)",
+              (u, title, msg, icon))
+    conn.commit()
+    conn.close()
 
 def get_notifications(u, unread=False):
-    with get_db() as conn:
-        if unread:
-            rows = conn.execute("""
-                SELECT * FROM notifications WHERE username=? AND is_read=0
-                ORDER BY id DESC
-            """, (u,)).fetchall()
-        else:
-            rows = conn.execute("""
-                SELECT * FROM notifications WHERE username=?
-                ORDER BY id DESC LIMIT 100
-            """, (u,)).fetchall()
-    return [dict(r) for r in rows]
-
+    conn = get_db()
+    c = conn.cursor()
+    if unread:
+        c.execute("SELECT * FROM notifications WHERE username = ? AND is_read = 0 ORDER BY created_at DESC", (u,))
+    else:
+        c.execute("SELECT * FROM notifications WHERE username = ? ORDER BY created_at DESC LIMIT 50", (u,))
+    rows = c.fetchall()
+    conn.close()
+    return rows
 
 def mark_notifications_read(u):
-    with get_db() as conn:
-        conn.execute(
-            "UPDATE notifications SET is_read=1 WHERE username=?", (u,)
-        )
-
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("UPDATE notifications SET is_read = 1 WHERE username = ?", (u,))
+    conn.commit()
+    conn.close()
 
 def check_daily_bonus(u):
-    today = datetime.date.today()
-    today_str = today.isoformat()
-    yesterday_str = (today - datetime.timedelta(days=1)).isoformat()
-
-    with get_db() as conn:
-        conn.execute("INSERT OR IGNORE INTO user_stats(username) VALUES (?)", (u,))
-        row = conn.execute(
-            "SELECT last_daily, streak FROM user_stats WHERE username=?", (u,)
-        ).fetchone()
-
-        if row["last_daily"] == today_str:
-            return 0
-
-        streak = int(row["streak"]) + 1 if row["last_daily"] == yesterday_str else 1
-        bonus = min(50, 10 + (streak - 1) * 5)
-        current = conn.execute(
-            "SELECT total_points FROM user_stats WHERE username=?", (u,)
-        ).fetchone()["total_points"]
-        total = int(current) + bonus
-
-        conn.execute("""
-            UPDATE user_stats SET last_daily=?, streak=?, total_points=?, level=?
-            WHERE username=?
-        """, (today_str, streak, total, total // 100 + 1, u))
-
-    add_notification(u, "المكافأة اليومية", f"حصلت على {bonus} نقطة! سلسلة الأيام: {streak}.", "🎁")
-    check_badges(u)
-    return bonus
-
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("SELECT last_daily, streak FROM user_stats WHERE username = ?", (u,))
+    row = c.fetchone()
+    if not row:
+        conn.close()
+        return 0, 0
+    today = datetime.now().strftime("%Y-%m-%d")
+    last = row["last_daily"]
+    streak = row["streak"] or 0
+    if last == today:
+        conn.close()
+        return 0, streak
+    yesterday = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
+    if last == yesterday:
+        streak += 1
+    else:
+        streak = 1
+    bonus = min(10 + (streak - 1) * 5, 50)
+    c.execute("UPDATE user_stats SET last_daily = ?, streak = ? WHERE username = ?", (today, streak, u))
+    conn.commit()
+    conn.close()
+    update_user_stats(u, points=bonus)
+    add_notification(u, "🎁 مكافأة يومية", f"حصلت على {bonus} نقطة! سلسلة: {streak} يوم", "🎁")
+    return bonus, streak
 
 def get_rank(lvl):
-    result = RANKS[1]
-    for threshold, rank in sorted(RANKS.items()):
+    for threshold, name in RANKS:
         if lvl >= threshold:
-            result = rank
-    return result
-
+            return name
+    return "🌱 مبتدئ"
 
 def toggle_favorite(u, lid):
-    with get_db() as conn:
-        row = conn.execute(
-            "SELECT id FROM favorites WHERE username=? AND lesson_id=?", (u, lid)
-        ).fetchone()
-        if row:
-            conn.execute("DELETE FROM favorites WHERE id=?", (row["id"],))
-            return False
-        conn.execute(
-            "INSERT OR IGNORE INTO favorites(username, lesson_id) VALUES (?, ?)",
-            (u, lid),
-        )
-        return True
-
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("SELECT id FROM favorites WHERE username = ? AND lesson_id = ?", (u, lid))
+    if c.fetchone():
+        c.execute("DELETE FROM favorites WHERE username = ? AND lesson_id = ?", (u, lid))
+        result = False
+    else:
+        c.execute("INSERT INTO favorites (username, lesson_id) VALUES (?, ?)", (u, lid))
+        result = True
+    conn.commit()
+    conn.close()
+    return result
 
 def is_favorite(u, lid):
-    with get_db() as conn:
-        return conn.execute(
-            "SELECT 1 FROM favorites WHERE username=? AND lesson_id=?", (u, lid)
-        ).fetchone() is not None
-
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("SELECT id FROM favorites WHERE username = ? AND lesson_id = ?", (u, lid))
+    r = c.fetchone()
+    conn.close()
+    return r is not None
 
 def get_favorites(u):
-    with get_db() as conn:
-        rows = conn.execute("""
-            SELECT l.* FROM lessons l JOIN favorites f ON l.id=f.lesson_id
-            WHERE f.username=? ORDER BY f.id DESC
-        """, (u,)).fetchall()
-    return [dict(r) for r in rows]
-
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("""SELECT l.* FROM lessons l JOIN favorites f ON l.id = f.lesson_id
+                 WHERE f.username = ? ORDER BY f.id DESC""", (u,))
+    rows = c.fetchall()
+    conn.close()
+    return rows
 
 def load_lessons(subject=None, language=None, owner=None, search=None):
-    query = "SELECT * FROM lessons WHERE 1=1"
-    args = []
+    conn = get_db()
+    c = conn.cursor()
+    q = "SELECT * FROM lessons WHERE 1=1"
+    params = []
     if subject and subject != "all":
-        query += " AND subject=?"
-        args.append(subject)
+        q += " AND subject = ?"
+        params.append(subject)
     if language and language != "all":
-        query += " AND language=?"
-        args.append(language)
-    if owner and owner != "all":
-        query += " AND owner=?"
-        args.append(owner)
+        q += " AND language = ?"
+        params.append(language)
+    if owner:
+        q += " AND owner = ?"
+        params.append(owner)
     if search:
-        query += " AND (title LIKE ? OR content LIKE ?)"
-        args.extend([f"%{search}%", f"%{search}%"])
-    query += " ORDER BY id DESC"
-    with get_db() as conn:
-        rows = conn.execute(query, args).fetchall()
-    return [dict(r) for r in rows]
+        q += " AND (title LIKE ? OR content LIKE ?)"
+        params.extend([f"%{search}%", f"%{search}%"])
+    q += " ORDER BY created_at DESC"
+    c.execute(q, params)
+    rows = c.fetchall()
+    conn.close()
+    return rows
 
-
-def add_lesson(subject, language, title, content, image_url="", pdf_url="", owner=None):
-    owner = owner or st.session_state.get("username", "soufianeDEV")
-    with get_db() as conn:
-        cur = conn.execute("""
-            INSERT INTO lessons(subject, language, title, content, image_url, pdf_url, owner, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        """, (
-            subject, language, title.strip(), content.strip(), image_url.strip(),
-            pdf_url.strip(), owner, datetime.datetime.now().isoformat(timespec="seconds"),
-        ))
-        return cur.lastrowid
-
+def add_lesson(subject, language, title, content, image_url, pdf_url, owner):
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("""INSERT INTO lessons (subject, language, title, content, image_url, pdf_url, owner)
+                 VALUES (?, ?, ?, ?, ?, ?, ?)""",
+              (subject, language, title, content, image_url, pdf_url, owner))
+    conn.commit()
+    lid = c.lastrowid
+    conn.close()
+    return lid
 
 def delete_lesson(lid):
-    with get_db() as conn:
-        conn.execute("DELETE FROM lessons WHERE id=?", (lid,))
-
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("DELETE FROM questions WHERE lesson_id = ?", (lid,))
+    c.execute("DELETE FROM lessons WHERE id = ?", (lid,))
+    conn.commit()
+    conn.close()
 
 def load_questions(lid):
-    with get_db() as conn:
-        rows = conn.execute(
-            "SELECT * FROM questions WHERE lesson_id=? ORDER BY id", (lid,)
-        ).fetchall()
-    return [dict(r) for r in rows]
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("SELECT * FROM questions WHERE lesson_id = ?", (lid,))
+    rows = c.fetchall()
+    conn.close()
+    return rows
 
-
-def add_question(lid, question, a, b, c, d, correct, explanation=""):
-    if correct not in ("A", "B", "C", "D"):
-        raise ValueError("La bonne réponse doit être A, B, C ou D.")
-    with get_db() as conn:
-        conn.execute("""
-            INSERT INTO questions
-            (lesson_id, question, option_a, option_b, option_c, option_d, correct_answer, explanation)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        """, (lid, question, a, b, c, d, correct, explanation))
-
+def add_question(lid, question, a, b, c_opt, d, correct, explanation):
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("""INSERT INTO questions (lesson_id, question, option_a, option_b, option_c, option_d, correct_answer, explanation)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+              (lid, question, a, b, c_opt, d, correct, explanation))
+    conn.commit()
+    conn.close()
 
 def delete_question(qid):
-    with get_db() as conn:
-        conn.execute("DELETE FROM questions WHERE id=?", (qid,))
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("DELETE FROM questions WHERE id = ?", (qid,))
+    conn.commit()
+    conn.close()
 
-
-def upload_file(f, folder):
+def upload_file(f, folder="files"):
     if f is None:
-        return ""
-    folder = os.path.basename(folder)
-    destination = Path(UPLOAD_DIR) / folder
-    destination.mkdir(parents=True, exist_ok=True)
-    safe_name = os.path.basename(f.name).replace(" ", "_")
-    target = destination / safe_name
-    with open(target, "wb") as output:
-        output.write(f.getbuffer())
-    return str(target)
-
+        return None
+    dest = UPLOAD_DIR / folder
+    dest.mkdir(parents=True, exist_ok=True)
+    path = dest / f.name
+    with open(path, "wb") as out:
+        out.write(f.getbuffer())
+    return str(path)
 
 def render_pdf(path):
-    if not path:
-        st.info("لا يوجد ملف PDF لهذا الدرس.")
+    if not path or not os.path.exists(path):
         return
-    if str(path).startswith(("http://", "https://")):
-        st.link_button("📄 فتح ملف PDF", path)
-        return
-    if not os.path.isfile(path):
-        st.warning("ملف PDF غير موجود.")
-        return
-    with open(path, "rb") as file:
-        data = base64.b64encode(file.read()).decode("utf-8")
-    st.markdown(
-        f'<iframe src="data:application/pdf;base64,{data}" '
-        'width="100%" height="650" type="application/pdf"></iframe>',
-        unsafe_allow_html=True,
-    )
+    with open(path, "rb") as f:
+        b64 = base64.b64encode(f.read()).decode()
+    st.markdown(f'<iframe src="data:application/pdf;base64,{b64}" width="100%" height="600" style="border-radius:12px;"></iframe>', unsafe_allow_html=True)
 
-
-def add_review(lid, u, rating, comment):
-    with get_db() as conn:
-        conn.execute("""
-            INSERT INTO reviews(lesson_id, username, rating, comment)
-            VALUES (?, ?, ?, ?)
-            ON CONFLICT(lesson_id, username)
-            DO UPDATE SET rating=excluded.rating, comment=excluded.comment
-        """, (lid, u, int(rating), comment.strip()))
-
+def add_review(lid, username, rating, comment):
+    conn = get_db()
+    c = conn.cursor()
+    try:
+        c.execute("INSERT OR REPLACE INTO reviews (lesson_id, username, rating, comment) VALUES (?, ?, ?, ?)",
+                  (lid, username, rating, comment))
+        conn.commit()
+    except Exception:
+        pass
+    conn.close()
 
 def get_reviews(lid):
-    with get_db() as conn:
-        rows = conn.execute(
-            "SELECT * FROM reviews WHERE lesson_id=? ORDER BY id DESC", (lid,)
-        ).fetchall()
-    return [dict(r) for r in rows]
-
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("SELECT * FROM reviews WHERE lesson_id = ? ORDER BY id DESC", (lid,))
+    rows = c.fetchall()
+    conn.close()
+    return rows
 
 def get_avg_rating(lid):
-    with get_db() as conn:
-        row = conn.execute(
-            "SELECT AVG(rating) AS avg, COUNT(*) AS n FROM reviews WHERE lesson_id=?",
-            (lid,),
-        ).fetchone()
-    return (round(row["avg"], 1) if row["avg"] is not None else 0, row["n"])
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("SELECT AVG(rating) as avg FROM reviews WHERE lesson_id = ?", (lid,))
+    r = c.fetchone()
+    conn.close()
+    return r["avg"] if r and r["avg"] else 0
 
-
-def add_message(lid, u, message):
-    with get_db() as conn:
-        conn.execute("""
-            INSERT INTO messages(lesson_id, username, message, created_at)
-            VALUES (?, ?, ?, ?)
-        """, (lid, u, message.strip(), datetime.datetime.now().isoformat(timespec="seconds")))
-
+def add_message(lid, username, message):
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("INSERT INTO messages (lesson_id, username, message) VALUES (?, ?, ?)",
+              (lid, username, message))
+    conn.commit()
+    conn.close()
 
 def get_messages(lid):
-    with get_db() as conn:
-        rows = conn.execute(
-            "SELECT * FROM messages WHERE lesson_id=? ORDER BY id DESC LIMIT 100",
-            (lid,),
-        ).fetchall()
-    return [dict(r) for r in rows]
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("SELECT * FROM messages WHERE lesson_id = ? ORDER BY created_at ASC", (lid,))
+    rows = c.fetchall()
+    conn.close()
+    return rows
 
-
-def add_flashcard(u, subject, front, back):
-    with get_db() as conn:
-        conn.execute("""
-            INSERT INTO flashcards(username, subject, front, back)
-            VALUES (?, ?, ?, ?)
-        """, (u, subject, front.strip(), back.strip()))
-
+def add_flashcard(username, subject, front, back):
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("INSERT INTO flashcards (username, subject, front, back) VALUES (?, ?, ?, ?)",
+              (username, subject, front, back))
+    conn.commit()
+    conn.close()
 
 def get_flashcards(u, s=None):
-    with get_db() as conn:
-        if s and s != "all":
-            rows = conn.execute("""
-                SELECT * FROM flashcards WHERE username=? AND subject=? ORDER BY id DESC
-            """, (u, s)).fetchall()
-        else:
-            rows = conn.execute(
-                "SELECT * FROM flashcards WHERE username=? ORDER BY id DESC", (u,)
-            ).fetchall()
-    return [dict(r) for r in rows]
-
+    conn = get_db()
+    c = conn.cursor()
+    if s and s != "all":
+        c.execute("SELECT * FROM flashcards WHERE username = ? AND subject = ? ORDER BY id DESC", (u, s))
+    else:
+        c.execute("SELECT * FROM flashcards WHERE username = ? ORDER BY id DESC", (u,))
+    rows = c.fetchall()
+    conn.close()
+    return rows
 
 def delete_flashcard(fid):
-    with get_db() as conn:
-        conn.execute("DELETE FROM flashcards WHERE id=?", (fid,))
-
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("DELETE FROM flashcards WHERE id = ?", (fid,))
+    conn.commit()
+    conn.close()
 
 def toggle_flashcard_known(fid):
-    with get_db() as conn:
-        conn.execute(
-            "UPDATE flashcards SET known=1-known WHERE id=?", (fid,)
-        )
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("UPDATE flashcards SET known = 1 - known WHERE id = ?", (fid,))
+    conn.commit()
+    conn.close()
 
+def add_note(username, lesson_id, note):
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("INSERT INTO notes (username, lesson_id, note) VALUES (?, ?, ?)",
+              (username, lesson_id, note))
+    conn.commit()
+    conn.close()
 
-def add_note(u, lid, note):
-    with get_db() as conn:
-        conn.execute("""
-            INSERT INTO notes(username, lesson_id, note, created_at)
-            VALUES (?, ?, ?, ?)
-        """, (u, lid, note.strip(), datetime.datetime.now().isoformat(timespec="seconds")))
-
-
-def get_notes(u, lid):
-    with get_db() as conn:
-        rows = conn.execute("""
-            SELECT * FROM notes WHERE username=? AND lesson_id=? ORDER BY id DESC
-        """, (u, lid)).fetchall()
-    return [dict(r) for r in rows]
-
+def get_notes(u, lid=None):
+    conn = get_db()
+    c = conn.cursor()
+    if lid:
+        c.execute("SELECT * FROM notes WHERE username = ? AND lesson_id = ? ORDER BY created_at DESC", (u, lid))
+    else:
+        c.execute("SELECT * FROM notes WHERE username = ? ORDER BY created_at DESC", (u,))
+    rows = c.fetchall()
+    conn.close()
+    return rows
 
 def delete_note(nid):
-    with get_db() as conn:
-        conn.execute("DELETE FROM notes WHERE id=?", (nid,))
-
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("DELETE FROM notes WHERE id = ?", (nid,))
+    conn.commit()
+    conn.close()
 
 def add_friend(u, fu):
-    fu = fu.strip()
-    if u == fu:
-        return False, "لا يمكنك إضافة نفسك."
-    with get_db() as conn:
-        exists = conn.execute(
-            "SELECT 1 FROM users WHERE username=?", (fu,)
-        ).fetchone()
-        if not exists:
-            return False, "اسم المستخدم غير موجود."
-        try:
-            conn.execute("""
-                INSERT INTO friends(username, friend_username, status)
-                VALUES (?, ?, 'accepted')
-            """, (u, fu))
-            conn.execute("""
-                INSERT OR IGNORE INTO friends(username, friend_username, status)
-                VALUES (?, ?, 'accepted')
-            """, (fu, u))
-            return True, "تمت إضافة الصديق."
-        except sqlite3.IntegrityError:
-            return False, "هذا المستخدم موجود بالفعل في قائمة أصدقائك."
-
+    conn = get_db()
+    c = conn.cursor()
+    try:
+        c.execute("INSERT INTO friends (username, friend_username, status) VALUES (?, ?, 'pending')", (u, fu))
+        c.execute("INSERT INTO friends (username, friend_username, status) VALUES (?, ?, 'pending')", (fu, u))
+        conn.commit()
+        conn.close()
+        return True
+    except sqlite3.IntegrityError:
+        conn.close()
+        return False
 
 def get_friends(u):
-    with get_db() as conn:
-        rows = conn.execute(
-            "SELECT * FROM friends WHERE username=? ORDER BY id DESC", (u,)
-        ).fetchall()
-    return [dict(r) for r in rows]
-
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("SELECT * FROM friends WHERE username = ? ORDER BY status", (u,))
+    rows = c.fetchall()
+    conn.close()
+    return rows
 
 def remove_friend(u, fu):
-    with get_db() as conn:
-        conn.execute(
-            "DELETE FROM friends WHERE username=? AND friend_username=?", (u, fu)
-        )
-        conn.execute(
-            "DELETE FROM friends WHERE username=? AND friend_username=?", (fu, u)
-        )
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("DELETE FROM friends WHERE (username = ? AND friend_username = ?) OR (username = ? AND friend_username = ?)",
+              (u, fu, fu, u))
+    conn.commit()
+    conn.close()
 
-
-def add_study_plan(u, subject, priority, target_date):
-    with get_db() as conn:
-        conn.execute("""
-            INSERT INTO study_plan(username, subject, priority, target_date)
-            VALUES (?, ?, ?, ?)
-        """, (u, subject, priority, str(target_date)))
-
+def add_study_plan(username, subject, priority, target_date):
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("INSERT INTO study_plan (username, subject, priority, target_date) VALUES (?, ?, ?, ?)",
+              (username, subject, priority, target_date))
+    conn.commit()
+    conn.close()
 
 def get_study_plan(u):
-    with get_db() as conn:
-        rows = conn.execute("""
-            SELECT * FROM study_plan WHERE username=?
-            ORDER BY completed ASC, target_date ASC, id DESC
-        """, (u,)).fetchall()
-    return [dict(r) for r in rows]
-
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("SELECT * FROM study_plan WHERE username = ? ORDER BY completed, target_date", (u,))
+    rows = c.fetchall()
+    conn.close()
+    return rows
 
 def toggle_study_plan(pid):
-    with get_db() as conn:
-        conn.execute(
-            "UPDATE study_plan SET completed=1-completed WHERE id=?", (pid,)
-        )
-
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("UPDATE study_plan SET completed = 1 - completed WHERE id = ?", (pid,))
+    conn.commit()
+    conn.close()
 
 def auto_generate_plan(u):
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("DELETE FROM study_plan WHERE username = ? AND completed = 0", (u,))
     weaknesses = get_weaknesses(u)
-    chosen = [w["subject"] for w in weaknesses]
-    if not chosen:
-        chosen = list(SUBJECTS.keys())
-    today = datetime.date.today()
-    count = 0
-    for index, subject in enumerate(chosen[:7]):
-        add_study_plan(
-            u, subject, "high" if index == 0 else "normal",
-            today + datetime.timedelta(days=index),
-        )
-        count += 1
-    return count
-
+    for w in weaknesses:
+        subject = w["subject"]
+        priority = "high" if w["avg_pct"] < 40 else "medium"
+        target = (datetime.now() + timedelta(days=7)).strftime("%Y-%m-%d")
+        c.execute("INSERT INTO study_plan (username, subject, priority, target_date) VALUES (?, ?, ?, ?)",
+                  (u, subject, priority, target))
+    for s in SUBJECTS:
+        c.execute("SELECT COUNT(*) as cnt FROM study_plan WHERE username = ? AND subject = ?", (u, s))
+        if c.fetchone()["cnt"] == 0:
+            target = (datetime.now() + timedelta(days=14)).strftime("%Y-%m-%d")
+            c.execute("INSERT INTO study_plan (username, subject, priority, target_date) VALUES (?, ?, ?, ?)",
+                      (u, s, "low", target))
+    conn.commit()
+    conn.close()
 
 # ============================================================
-# THEME AND LANGUAGE
+# NEW FEATURE: ACHIEVEMENT TRACKER
 # ============================================================
+
+def get_achievement_progress(u):
+    stats = get_user_stats(u)
+    if not stats:
+        return []
+    progress = []
+    progress.append({"name": "أول اختبار", "current": min(stats["quizzes_taken"], 1), "target": 1})
+    progress.append({"name": "5 اختبارات", "current": min(stats["quizzes_taken"], 5), "target": 5})
+    progress.append({"name": "10 اختبارات", "current": min(stats["quizzes_taken"], 10), "target": 10})
+    progress.append({"name": "25 اختبار", "current": min(stats["quizzes_taken"], 25), "target": 25})
+    progress.append({"name": "50 اختبار", "current": min(stats["quizzes_taken"], 50), "target": 50})
+    progress.append({"name": "المستوى 5", "current": min(stats["level"], 5), "target": 5})
+    progress.append({"name": "المستوى 10", "current": min(stats["level"], 10), "target": 10})
+    progress.append({"name": "المستوى 20", "current": min(stats["level"], 20), "target": 20})
+    progress.append({"name": "7 مواد", "current": min(stats["unique_subjects"], 7), "target": 7})
+    progress.append({"name": "سلسلة 7 أيام", "current": min(stats["streak"], 7), "target": 7})
+    return progress
+
+# ============================================================
+# NEW FEATURE: SMART RECOMMENDATIONS
+# ============================================================
+
+def get_recommendations(u):
+    conn = get_db()
+    c = conn.cursor()
+    recs = []
+    c.execute("""SELECT subject, AVG(percent) as avg_pct FROM quiz_history
+                 WHERE username = ? GROUP BY subject ORDER BY avg_pct ASC LIMIT 3""", (u,))
+    weak_subjects = c.fetchall()
+    for w in weak_subjects:
+        if w["avg_pct"] < 70:
+            subj = SUBJECTS.get(w["subject"], {"name": w["subject"], "icon": "📖"})
+            recs.append({
+                "type": "weakness",
+                "subject": w["subject"],
+                "title": f"راجع {subj['icon']} {subj['name']}",
+                "desc": f"معدلك {w['avg_pct']:.0f}% — يحتاج تحسين",
+                "icon": "⚠️"
+            })
+    c.execute("""SELECT l.* FROM lessons l
+                 LEFT JOIN quiz_history q ON l.id = q.lesson_id AND q.username = ?
+                 WHERE q.id IS NULL LIMIT 3""", (u,))
+    unread_lessons = c.fetchall()
+    for l in unread_lessons:
+        subj = SUBJECTS.get(l["subject"], {"name": l["subject"], "icon": "📖"})
+        recs.append({
+            "type": "new",
+            "subject": l["subject"],
+            "title": f"جرب درس: {l['title']}",
+            "desc": f"{subj['icon']} {subj['name']} — لم تجربه بعد",
+            "icon": "🆕"
+        })
+    conn.close()
+    return recs[:5]
+
+# ============================================================
+# NEW FEATURE: DAILY CHALLENGE
+# ============================================================
+
+def get_daily_challenge():
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("SELECT * FROM questions ORDER BY RANDOM() LIMIT 5")
+    rows = c.fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+def save_daily_challenge(u, score, total):
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("""INSERT INTO quiz_history (username, lesson_id, lesson_title, subject, score, total, percent)
+                 VALUES (?, ?, ?, ?, ?, ?, ?)""",
+              (u, -1, "التحدي اليومي", "daily", score, total, (score/total)*100 if total else 0))
+    conn.commit()
+    conn.close()
+    update_user_stats(u, points=score * 15, quiz=True, perfect=(score == total), subject="daily")
+
+# ============================================================
+# NEW FEATURE: STUDY TIMER (POMODORO)
+# ============================================================
+
+def render_pomodoro():
+    st.markdown("### ⏱️ مؤقت بومودورو")
+    st.write("قم بتقسيم وقتك: 25 دقيقة مراجعة + 5 دقائق راحة")
+    if "pomodoro_start" not in st.session_state:
+        st.session_state.pomodoro_start = None
+        st.session_state.pomodoro_duration = 25 * 60
+        st.session_state.pomodoro_mode = "work"
+    c1, c2, c3 = st.columns(3)
+    with c1:
+        if st.button("▶️ ابدأ 25 دقيقة"):
+            st.session_state.pomodoro_start = time.time()
+            st.session_state.pomodoro_duration = 25 * 60
+            st.session_state.pomodoro_mode = "work"
+            st.rerun()
+    with c2:
+        if st.button("☕ راحة 5 دقائق"):
+            st.session_state.pomodoro_start = time.time()
+            st.session_state.pomodoro_duration = 5 * 60
+            st.session_state.pomodoro_mode = "break"
+            st.rerun()
+    with c3:
+        if st.button("⏹️ إيقاف"):
+            st.session_state.pomodoro_start = None
+            st.rerun()
+    if st.session_state.pomodoro_start:
+        elapsed = time.time() - st.session_state.pomodoro_start
+        remaining = max(0, st.session_state.pomodoro_duration - elapsed)
+        mins, secs = divmod(int(remaining), 60)
+        mode = "🔴 مراجعة" if st.session_state.pomodoro_mode == "work" else "🟢 راحة"
+        st.markdown(f"<h1 style='text-align:center;font-size:4rem;'>{mins:02d}:{secs:02d}</h1>", unsafe_allow_html=True)
+        st.markdown(f"<p style='text-align:center;'>{mode}</p>", unsafe_allow_html=True)
+        progress = 1 - (remaining / st.session_state.pomodoro_duration)
+        st.progress(progress)
+        if remaining <= 0:
+            st.success("انتهى الوقت!")
+            st.balloons()
+            st.session_state.pomodoro_start = None
+
+# ============================================================
+# NEW FEATURE: PROGRESS CHART
+# ============================================================
+
+def render_progress_chart(u):
+    history = get_quiz_history(u, 30)
+    if not history:
+        st.info("لا يوجد سجل بعد")
+        return
+    data = []
+    for h in reversed(list(history)):
+        data.append({"date": h["created_at"][:10], "percent": h["percent"]})
+    import pandas as pd
+    df = pd.DataFrame(data)
+    if not df.empty:
+        df = df.groupby("date").mean().reset_index()
+        st.line_chart(df.set_index("date")["percent"])
+
+# ============================================================
+# NEW FEATURE: ACHIEVEMENT TRACKER UI
+# ============================================================
+
+def render_achievement_tracker():
+    st.markdown("### 🎯 تتبع الإنجازات")
+    progress = get_achievement_progress(st.session_state.username)
+    for p in progress:
+        pct = p["current"] / p["target"] if p["target"] else 0
+        st.markdown(f"**{p['name']}** — {p['current']}/{p['target']}")
+        st.progress(min(pct, 1.0))
+
+# ============================================================
+# THEME & TRANSLATION
+# ============================================================
+
+def apply_theme():
+    theme_key = st.session_state.get("theme", "fcb")
+    t = THEMES[theme_key]
+    css = f"""
+    <style>
+    @import url('https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;900&display=swap');
+    * {{ font-family: 'Cairo', sans-serif; direction: rtl; }}
+    .stApp {{ background-color: {t['bg']}; color: {t['text']}; }}
+    .main .block-container {{ padding: 1rem 2rem; max-width: 1200px; }}
+    h1, h2, h3, h4, h5, h6 {{ color: {t['text']}; }}
+    p, span, div, label {{ color: {t['text']}; }}
+    .stButton > button {{
+        background: linear-gradient(135deg, {t['accent']}, {t['border']});
+        color: {t['text']};
+        border: 1px solid {t['border']};
+        border-radius: 12px;
+        padding: 0.5rem 1.2rem;
+        font-weight: 700;
+        transition: all 0.3s;
+    }}
+    .stButton > button:hover {{
+        transform: translateY(-2px);
+        box-shadow: 0 8px 20px {t['accent']}66;
+    }}
+    .stTextInput > div > div > input, .stTextArea > div > div > textarea, .stSelectbox > div > div {{
+        background-color: {t['card']} !important;
+        color: {t['text']} !important;
+        border: 1px solid {t['border']} !important;
+        border-radius: 10px !important;
+    }}
+    .stTabs [data-baseweb="tab"] {{
+        background-color: {t['card']};
+        color: {t['text']};
+        border-radius: 10px 10px 0 0;
+        padding: 0.5rem 1rem;
+    }}
+    .stTabs [aria-selected="true"] {{
+        background-color: {t['accent']} !important;
+        color: #fff !important;
+    }}
+    .card {{
+        background-color: {t['card']};
+        border: 1px solid {t['border']};
+        border-radius: 16px;
+        padding: 1.2rem;
+        margin: 0.8rem 0;
+        box-shadow: 0 4px 15px rgba(0,0,0,0.3);
+        transition: all 0.3s;
+    }}
+    .card:hover {{
+        transform: translateY(-3px);
+        box-shadow: 0 8px 25px {t['accent']}44;
+    }}
+    .stat-box {{
+        background: linear-gradient(135deg, {t['card']}, {t['secondary']});
+        border: 1px solid {t['border']};
+        border-radius: 14px;
+        padding: 1rem;
+        text-align: center;
+        margin: 0.3rem;
+    }}
+    .stat-number {{ font-size: 2rem; font-weight: 900; color: {t['accent']}; }}
+    .badge {{
+        display: inline-block;
+        background: {t['secondary']};
+        border: 1px solid {t['border']};
+        border-radius: 20px;
+        padding: 0.3rem 0.8rem;
+        margin: 0.2rem;
+        font-size: 0.9rem;
+    }}
+    .badge-earned {{
+        background: linear-gradient(135deg, {t['accent']}, {t['highlight']});
+        color: #000;
+        font-weight: 700;
+    }}
+    .footer {{
+        text-align: center;
+        padding: 1.5rem;
+        color: {t['text']};
+        opacity: 0.6;
+        font-size: 0.85rem;
+        border-top: 1px solid {t['border']};
+        margin-top: 2rem;
+    }}
+    .header-banner {{
+        background: linear-gradient(135deg, {t['accent']}, {t['border']});
+        border-radius: 16px;
+        padding: 1.5rem;
+        text-align: center;
+        margin-bottom: 1.5rem;
+    }}
+    .header-banner h1 {{ color: #fff; margin: 0; }}
+    .header-banner p {{ color: #fff; opacity: 0.9; margin: 0.3rem 0 0 0; }}
+    .sidebar .sidebar-content {{ background-color: {t['secondary']}; }}
+    section[data-testid="stSidebar"] {{
+        background-color: {t['secondary']} !important;
+        border-left: 1px solid {t['border']};
+    }}
+    .stProgress > div > div > div > div {{
+        background: linear-gradient(90deg, {t['accent']}, {t['highlight']});
+    }}
+    .stRadio > div {{ gap: 0.5rem; }}
+    .stRadio label {{ color: {t['text']} !important; }}
+    .stCheckbox label {{ color: {t['text']} !important; }}
+    .stMetric label {{ color: {t['text']} !important; }}
+    .stMetric value {{ color: {t['accent']} !important; }}
+    div[data-testid="stExpander"] {{
+        background-color: {t['card']};
+        border: 1px solid {t['border']};
+        border-radius: 12px;
+    }}
+    .stAlert {{ border-radius: 12px; }}
+    .rec-card {{
+        background: {t['card']};
+        border-right: 4px solid {t['accent']};
+        border-radius: 12px;
+        padding: 1rem;
+        margin: 0.5rem 0;
+    }}
+    </style>
+    """
+    st.markdown(css, unsafe_allow_html=True)
 
 def T(key):
     lang = st.session_state.get("language", "ar")
     return TRANSLATIONS.get(lang, TRANSLATIONS["ar"]).get(key, key)
 
-
-def apply_theme():
-    theme_name = st.session_state.get("theme", "🌙 Midnight Purple")
-    theme = THEMES.get(theme_name, THEMES["🌙 Midnight Purple"])
-    st.markdown(f"""
-    <style>
-    :root {{
-        color-scheme: {"light" if theme_name == "☀️ Light Mode" else "dark"};
-    }}
-    .stApp {{
-        background: {theme["bg"]};
-        color: {theme["text"]};
-        direction: rtl;
-    }}
-    [data-testid="stHeader"] {{
-        background: {theme["bg"]};
-    }}
-    [data-testid="stSidebar"] {{
-        background: {theme["secondary"]};
-        border-left: 1px solid {theme["border"]};
-        direction: rtl;
-    }}
-    [data-testid="stSidebar"] * {{
-        text-align: right;
-    }}
-    .stMarkdown, .stText, p, label, h1, h2, h3, h4 {{
-        color: {theme["text"]};
-    }}
-    .stButton button, .stDownloadButton button {{
-        border-radius: 12px;
-        border: 1px solid {theme["border"]};
-        background: {theme["accent"]};
-        color: white;
-        font-weight: 700;
-        width: 100%;
-    }}
-    .stButton button:hover {{
-        border-color: {theme["highlight"]};
-        color: {theme["text"]};
-    }}
-    [data-testid="stMetric"] {{
-        background: {theme["card"]};
-        border: 1px solid {theme["border"]};
-        padding: 16px;
-        border-radius: 16px;
-    }}
-    [data-testid="stExpander"] {{
-        background: {theme["card"]};
-        border-radius: 12px;
-        border: 1px solid {theme["border"]};
-    }}
-    .rm-card {{
-        background: {theme["card"]};
-        border: 1px solid {theme["border"]};
-        border-radius: 16px;
-        padding: 18px;
-        margin: 8px 0 16px 0;
-    }}
-    .rm-hero {{
-        background: linear-gradient(135deg, {theme["secondary"]}, {theme["card"]});
-        border: 1px solid {theme["border"]};
-        border-radius: 22px;
-        padding: 28px;
-        text-align: center;
-        margin-bottom: 20px;
-    }}
-    .rm-accent {{
-        color: {theme["highlight"]};
-        font-weight: 800;
-    }}
-    .rm-footer {{
-        text-align: center;
-        padding: 24px 0 8px 0;
-        margin-top: 36px;
-        border-top: 1px solid {theme["border"]};
-        opacity: 0.8;
-        font-size: 13px;
-    }}
-    input, textarea {{
-        direction: rtl !important;
-    }}
-    div[data-testid="stForm"] {{
-        border-color: {theme["border"]};
-    }}
-    </style>
-    """, unsafe_allow_html=True)
-
-
-def render_footer():
-    st.markdown(
-        '<div class="rm-footer">© 2026 Soufiane Ouhazza — 3AC RevisioMaroc</div>',
-        unsafe_allow_html=True,
-    )
-
-
-def safe_rerun():
-    st.rerun()
-
-
-def login_user(user):
-    st.session_state.authenticated = True
-    st.session_state.username = user["username"]
-    st.session_state.role = user["role"]
-    st.session_state.full_name = user["full_name"]
-    st.session_state.page = "home"
-    st.session_state.quiz_answers = {}
-    st.session_state.quiz_submitted = False
-    st.session_state.quiz_started = None
-    check_daily_bonus(user["username"])
-    safe_rerun()
-
+def footer():
+    st.markdown('<div class="footer">© 2026 Soufiane Ouhazza — 3AC RevisioMaroc</div>', unsafe_allow_html=True)
 
 # ============================================================
-# AUTHENTICATION PAGES
+# AUTH PAGES
 # ============================================================
 
 def render_auth_home():
     st.markdown("""
-    <div class="rm-hero">
+    <div class="header-banner">
         <h1>📚 3AC RevisioMaroc</h1>
-        <h3>منصتك الذكية للنجاح في الثالثة إعدادي</h3>
-        <p>تعلم، راجع، اختبر معلوماتك، واجمع النقاط والإنجازات!</p>
+        <p>منصة المراجعة للتلاميذ — السنة الثالثة إعدادي</p>
     </div>
     """, unsafe_allow_html=True)
-
     col1, col2, col3 = st.columns(3)
     with col1:
-        st.markdown("### 🎓 تلميذ")
-        st.write("ادخل إلى حسابك، راجع الدروس، وأنجز الاختبارات.")
-        if st.button("دخول التلميذ", key="auth_student", use_container_width=True):
-            st.session_state.auth_route = "student"
-            safe_rerun()
+        if st.button("🎓 تلميذ", use_container_width=True):
+            st.session_state.auth_page = "student_login"
+            st.rerun()
     with col2:
-        st.markdown("### 🛠️ مطور")
-        st.write("إدارة الدروس والأسئلة والمحتوى التعليمي.")
-        if st.button("دخول المطور", key="auth_developer", use_container_width=True):
-            st.session_state.auth_route = "developer"
-            safe_rerun()
+        if st.button("🛠️ مطور", use_container_width=True):
+            st.session_state.auth_page = "developer_login"
+            st.rerun()
     with col3:
-        st.markdown("### ✨ حساب جديد")
-        st.write("أنشئ حساباً مجانياً وابدأ رحلة المراجعة.")
-        if st.button("إنشاء حساب", key="auth_register", use_container_width=True):
-            st.session_state.auth_route = "register"
-            safe_rerun()
-
-    st.info("حساب المطور الافتراضي يُنشأ تلقائياً عند تهيئة قاعدة البيانات.")
-
+        if st.button("📝 تسجيل جديد", use_container_width=True):
+            st.session_state.auth_page = "register"
+            st.rerun()
+    st.markdown("### ✨ مميزات المنصة")
+    c1, c2, c3, c4 = st.columns(4)
+    with c1:
+        st.markdown('<div class="card" style="text-align:center;"><div style="font-size:2rem;">📝</div><b>اختبارات تفاعلية</b></div>', unsafe_allow_html=True)
+    with c2:
+        st.markdown('<div class="card" style="text-align:center;"><div style="font-size:2rem;">🃏</div><b>بطاقات تعليمية</b></div>', unsafe_allow_html=True)
+    with c3:
+        st.markdown('<div class="card" style="text-align:center;"><div style="font-size:2rem;">🏆</div><b>نظام النقاط</b></div>', unsafe_allow_html=True)
+    with c4:
+        st.markdown('<div class="card" style="text-align:center;"><div style="font-size:2rem;">📊</div><b>تقارير ذكية</b></div>', unsafe_allow_html=True)
+    footer()
 
 def render_student_login():
-    st.subheader("🎓 تسجيل دخول التلميذ")
-    with st.form("student_login_form"):
-        username = st.text_input("اسم المستخدم")
-        password = st.text_input("كلمة المرور", type="password")
-        submitted = st.form_submit_button("دخول")
-    if submitted:
-        user = authenticate(username, password)
-        if user and user["role"] == "student":
-            login_user(user)
-        else:
-            st.error("بيانات الدخول غير صحيحة أو الحساب ليس حساب تلميذ.")
-    if st.button("⬅️ رجوع", key="student_back"):
-        st.session_state.auth_route = "home"
-        safe_rerun()
-
+    st.markdown('<div class="header-banner"><h1>🎓 دخول التلميذ</h1></div>', unsafe_allow_html=True)
+    with st.form("student_login"):
+        u = st.text_input(T("username"))
+        p = st.text_input(T("password"), type="password")
+        if st.form_submit_button(T("login"), use_container_width=True):
+            user = authenticate(u, p)
+            if user and user["role"] in ("student", "developer"):
+                st.session_state.authenticated = True
+                st.session_state.username = u
+                st.session_state.role = user["role"]
+                st.session_state.full_name = user["full_name"]
+                st.session_state.page = "dashboard"
+                bonus, streak = check_daily_bonus(u)
+                if bonus > 0:
+                    st.success(f"🎁 مكافأة يومية: +{bonus} نقطة! (سلسلة: {streak} أيام)")
+                st.rerun()
+            else:
+                st.error(T("error_login"))
+    if st.button("← رجوع"):
+        st.session_state.auth_page = "home"
+        st.rerun()
+    footer()
 
 def render_developer_login():
-    st.subheader("🛠️ دخول المطور")
-    with st.form("developer_login_form"):
-        username = st.text_input("اسم المستخدم")
-        password = st.text_input("كلمة المرور", type="password")
-        submitted = st.form_submit_button("دخول المطور")
-    if submitted:
-        user = authenticate(username, password)
-        if user and user["role"] == "developer":
-            login_user(user)
-        else:
-            st.error("بيانات المطور غير صحيحة.")
-    if st.button("⬅️ رجوع", key="developer_back"):
-        st.session_state.auth_route = "home"
-        safe_rerun()
-
+    st.markdown('<div class="header-banner"><h1>🛠️ دخول المطور</h1></div>', unsafe_allow_html=True)
+    with st.form("dev_login"):
+        u = st.text_input(T("username"))
+        p = st.text_input(T("password"), type="password")
+        if st.form_submit_button(T("login"), use_container_width=True):
+            user = authenticate(u, p)
+            if user and user["role"] == "developer":
+                st.session_state.authenticated = True
+                st.session_state.username = u
+                st.session_state.role = "developer"
+                st.session_state.full_name = user["full_name"]
+                st.session_state.page = "developer_panel"
+                st.rerun()
+            else:
+                st.error("❌ صلاحيات المطور فقط")
+    if st.button("← رجوع"):
+        st.session_state.auth_page = "home"
+        st.rerun()
+    footer()
 
 def render_register():
-    st.subheader("✨ إنشاء حساب جديد")
-    with st.form("register_form"):
-        full_name = st.text_input("الاسم الكامل")
-        username = st.text_input("اسم المستخدم")
-        password = st.text_input("كلمة المرور", type="password")
-        confirm = st.text_input("تأكيد كلمة المرور", type="password")
-        submitted = st.form_submit_button("إنشاء الحساب")
-    if submitted:
-        if password != confirm:
-            st.error("كلمتا المرور غير متطابقتين.")
-        else:
-            ok, msg = register_user(username, password, full_name)
-            if ok:
-                st.success(msg)
-                st.session_state.auth_route = "student"
-                safe_rerun()
+    st.markdown('<div class="header-banner"><h1>📝 تسجيل جديد</h1></div>', unsafe_allow_html=True)
+    with st.form("register"):
+        n = st.text_input(T("full_name"))
+        u = st.text_input(T("username"))
+        p = st.text_input(T("password"), type="password")
+        p2 = st.text_input("تأكيد كلمة المرور", type="password")
+        if st.form_submit_button(T("register"), use_container_width=True):
+            if not u or not p or not n:
+                st.error("املأ جميع الحقول")
+            elif len(p) < 4:
+                st.error("كلمة المرور قصيرة جداً")
+            elif p != p2:
+                st.error("كلمتا المرور غير متطابقتين")
+            elif register_user(u, p, n):
+                st.success(T("success_register") + " ✅")
+                st.session_state.auth_page = "student_login"
+                st.rerun()
             else:
-                st.error(msg)
-    if st.button("⬅️ رجوع", key="register_back"):
-        st.session_state.auth_route = "home"
-        safe_rerun()
-
+                st.error(T("error_register") + " — اسم المستخدم مستعمل")
+    if st.button("← رجوع"):
+        st.session_state.auth_page = "home"
+        st.rerun()
+    footer()
 
 def render_auth_page():
-    apply_theme()
-    route = st.session_state.get("auth_route", "home")
-    if route == "student":
+    if "auth_page" not in st.session_state:
+        st.session_state.auth_page = "home"
+    page = st.session_state.auth_page
+    if page == "home":
+        render_auth_home()
+    elif page == "student_login":
         render_student_login()
-    elif route == "developer":
+    elif page == "developer_login":
         render_developer_login()
-    elif route == "register":
+    elif page == "register":
         render_register()
     else:
         render_auth_home()
-    render_footer()
-
 
 # ============================================================
 # DASHBOARD
@@ -1129,897 +1310,771 @@ def render_auth_page():
 def render_dashboard():
     u = st.session_state.username
     stats = get_user_stats(u)
-    lessons = load_lessons()
-    history = get_quiz_history(u, 5)
-    unread = len(get_notifications(u, unread=True))
-
-    st.markdown(f"""
-    <div class="rm-hero">
-        <h1>مرحباً، {st.session_state.full_name} 👋</h1>
-        <h3>أهلاً بك في {APP_NAME}</h3>
-        <p>رتبتك الحالية: <span class="rm-accent">{get_rank(stats["level"])}</span></p>
-    </div>
-    """, unsafe_allow_html=True)
-
+    st.markdown(f'<div class="header-banner"><h1>مرحباً {st.session_state.full_name or u} 👋</h1><p>لنواصل المراجعة!</p></div>', unsafe_allow_html=True)
+    level = stats["level"] if stats else 1
+    points = stats["total_points"] if stats else 0
+    rank = get_rank(level)
+    c1, c2, c3, c4 = st.columns(4)
+    with c1:
+        st.markdown(f'<div class="stat-box"><div class="stat-number">{points}</div><div>النقاط</div></div>', unsafe_allow_html=True)
+    with c2:
+        st.markdown(f'<div class="stat-box"><div class="stat-number">{level}</div><div>المستوى</div></div>', unsafe_allow_html=True)
+    with c3:
+        st.markdown(f'<div class="stat-box"><div class="stat-number">{stats["quizzes_taken"] if stats else 0}</div><div>الاختبارات</div></div>', unsafe_allow_html=True)
+    with c4:
+        st.markdown(f'<div class="stat-box"><div class="stat-number">{rank.split()[0]}</div><div>{rank}</div></div>', unsafe_allow_html=True)
+    progress = (points % 100) / 100
+    st.progress(progress, text=f"التقدم نحو المستوى {level + 1}: {points % 100}/100")
+    # Recommendations
+    recs = get_recommendations(u)
+    if recs:
+        st.markdown("### 💡 توصيات ذكية")
+        for r in recs:
+            st.markdown(f'<div class="rec-card"><b>{r["icon"]} {r["title"]}</b><br><small>{r["desc"]}</small></div>', unsafe_allow_html=True)
+    st.markdown("### 📚 المواد الدراسية")
     cols = st.columns(4)
-    cols[0].metric("⭐ النقاط", stats["total_points"])
-    cols[1].metric("🏅 المستوى", stats["level"])
-    cols[2].metric("📝 الاختبارات", stats["quizzes_taken"])
-    cols[3].metric("🔔 إشعارات غير مقروءة", unread)
-
-    st.subheader("📚 المواد الدراسية")
-    cards = st.columns(4)
-    for i, (key, subject) in enumerate(SUBJECTS.items()):
-        with cards[i % 4]:
-            count = sum(1 for lesson in lessons if lesson["subject"] == key)
+    for i, (key, subj) in enumerate(SUBJECTS.items()):
+        with cols[i % 4]:
             st.markdown(f"""
-            <div class="rm-card" style="border-top:4px solid {subject["color"]};">
-                <h2>{subject["icon"]}</h2>
-                <h4>{subject["name"]}</h4>
-                <p>{count} درس</p>
+            <div class="card" style="border-color:{subj['color']};text-align:center;">
+                <div style="font-size:2.5rem;">{subj['icon']}</div>
+                <div style="font-weight:700;font-size:1.1rem;">{subj['name']}</div>
             </div>
             """, unsafe_allow_html=True)
-            if st.button("استكشف الدروس", key=f"subject_{key}"):
-                st.session_state.selected_subject = key
+            if st.button(f"تصفح", key=f"subj_{key}", use_container_width=True):
+                st.session_state.filter_subject = key
                 st.session_state.page = "lessons"
-                safe_rerun()
-
-    st.subheader("🕘 آخر الاختبارات")
-    if history:
-        st.dataframe(
-            [{
-                "الدرس": h["lesson_title"],
-                "المادة": SUBJECTS.get(h["subject"], {}).get("name", h["subject"]),
-                "النتيجة": f'{h["score"]}/{h["total"]}',
-                "النسبة": f'{h["percent"]}%',
-                "التاريخ": h["created_at"][:16],
-            } for h in history],
-            use_container_width=True,
-            hide_index=True,
-        )
-    else:
-        st.info("لم تنجز أي اختبار بعد. ابدأ الآن من صفحة الاختبارات.")
-
-    st.subheader("⚡ اختصارات")
-    a, b, c = st.columns(3)
-    with a:
-        if st.button("📝 بدء اختبار", use_container_width=True):
-            st.session_state.page = "quiz"
-            safe_rerun()
-    with b:
-        if st.button("🧠 مراجعة سريعة", use_container_width=True):
-            st.session_state.page = "review"
-            safe_rerun()
-    with c:
-        if st.button("📅 خطة المراجعة", use_container_width=True):
-            st.session_state.page = "plan"
-            safe_rerun()
-
+                st.rerun()
+    st.markdown("### ⚡ إجراءات سريعة")
+    c1, c2, c3 = st.columns(3)
+    with c1:
+        if st.button("🎯 التحدي اليومي", use_container_width=True):
+            st.session_state.page = "daily_challenge"
+            st.rerun()
+    with c2:
+        if st.button("⏱️ مؤقت المراجعة", use_container_width=True):
+            st.session_state.page = "pomodoro"
+            st.rerun()
+    with c3:
+        if st.button("⚡ مراجعة سريعة", use_container_width=True):
+            st.session_state.page = "quick_review"
+            st.rerun()
+    footer()
 
 # ============================================================
-# LESSONS AND LESSON DETAILS
+# LESSONS
 # ============================================================
 
-def render_lessons():
-    st.title("📚 مكتبة الدروس")
-    col1, col2, col3 = st.columns([2, 1, 1])
-    with col1:
-        search = st.text_input("🔎 ابحث عن درس")
-    with col2:
-        subject = st.selectbox(
-            "المادة",
-            ["all"] + list(SUBJECTS.keys()),
-            format_func=lambda x: "جميع المواد" if x == "all" else
-            f'{SUBJECTS[x]["icon"]} {SUBJECTS[x]["name"]}',
-            index=(["all"] + list(SUBJECTS.keys())).index(
-                st.session_state.get("selected_subject", "all")
-            ) if st.session_state.get("selected_subject", "all") in ["all"] + list(SUBJECTS.keys()) else 0,
-        )
-    with col3:
-        language = st.selectbox(
-            "لغة الدرس",
-            ["all", "ar", "fr", "en"],
-            format_func=lambda x: {"all": "الكل", "ar": "العربية", "fr": "Français", "en": "English"}[x],
-        )
+def _render_reviews(lid):
+    st.markdown("#### ⭐ التقييمات")
+    avg = get_avg_rating(lid)
+    if avg:
+        st.markdown(f"**المتوسط: {avg:.1f}/5** " + "⭐" * int(avg))
+    reviews = get_reviews(lid)
+    with st.form(f"review_form_{lid}"):
+        rating = st.slider("تقييمك", 1, 5, 5)
+        comment = st.text_area("تعليقك")
+        if st.form_submit_button("إرسال التقييم"):
+            add_review(lid, st.session_state.username, rating, comment)
+            st.success("تم إضافة التقييم")
+            st.rerun()
+    for r in reviews:
+        st.markdown(f"**{r['username']}** — {'⭐' * r['rating']}")
+        if r["comment"]:
+            st.write(r["comment"])
+        st.divider()
 
-    lessons = load_lessons(subject, language, "all", search)
-    if not lessons:
-        st.info("لا توجد دروس مطابقة حالياً. يمكن للمطور إضافة دروس جديدة.")
-    for lesson in lessons:
-        _render_lesson_card(lesson)
+def _render_discussion(lid):
+    st.markdown("#### 💬 المناقشة")
+    messages = get_messages(lid)
+    for m in messages:
+        st.markdown(f"**{m['username']}** _({m['created_at'][:16]})_")
+        st.write(m["message"])
+        st.divider()
+    with st.form(f"msg_form_{lid}"):
+        msg = st.text_area("رسالتك")
+        if st.form_submit_button("إرسال"):
+            if msg.strip():
+                add_message(lid, st.session_state.username, msg.strip())
+                st.rerun()
 
+def _render_notes(lid):
+    st.markdown("#### 📝 ملاحظاتي")
+    notes = get_notes(st.session_state.username, lid)
+    with st.form(f"note_form_{lid}"):
+        note = st.text_area("ملاحظة جديدة")
+        if st.form_submit_button("حفظ الملاحظة"):
+            if note.strip():
+                add_note(st.session_state.username, lid, note.strip())
+                st.rerun()
+    for n in notes:
+        st.markdown(f"_{n['created_at'][:16]}_")
+        st.write(n["note"])
+        if st.button("🗑️", key=f"del_note_{n['id']}"):
+            delete_note(n["id"])
+            st.rerun()
+        st.divider()
 
 def _render_lesson_card(lesson):
     lid = lesson["id"]
-    u = st.session_state.username
-    avg, count = get_avg_rating(lid)
-    subject = SUBJECTS.get(lesson["subject"], {"name": lesson["subject"], "icon": "📘", "color": "#4A90E2"})
+    subj = SUBJECTS.get(lesson["subject"], {"name": lesson["subject"], "icon": "📖", "color": "#888"})
+    fav = is_favorite(st.session_state.username, lid)
+    col1, col2 = st.columns([5, 1])
+    with col1:
+        st.markdown(f"### {subj['icon']} {lesson['title']}")
+        st.caption(f"{subj['name']} — {lesson['language']} — {lesson['created_at'][:10]}")
+    with col2:
+        if st.button("❤️" if fav else "🤍", key=f"fav_{lid}"):
+            toggle_favorite(st.session_state.username, lid)
+            st.rerun()
+    tabs = st.tabs(["📖 المحتوى", "⭐ التقييمات", "💬 المناقشة", "📝 ملاحظاتي"])
+    with tabs[0]:
+        if lesson["image_url"]:
+            st.image(lesson["image_url"], use_container_width=True)
+        st.write(lesson["content"] or "")
+        if lesson["pdf_url"]:
+            render_pdf(lesson["pdf_url"])
+        questions = load_questions(lid)
+        if questions:
+            if st.button(f"🚀 ابدأ الاختبار ({len(questions)} أسئلة)", key=f"start_quiz_{lid}"):
+                st.session_state.quiz_lesson_id = lid
+                st.session_state.quiz_lesson_title = lesson["title"]
+                st.session_state.quiz_subject = lesson["subject"]
+                st.session_state.quiz_questions = [dict(q) for q in questions]
+                st.session_state.quiz_answers = {}
+                st.session_state.quiz_start_time = time.time()
+                st.session_state.page = "quiz"
+                st.rerun()
+    with tabs[1]:
+        _render_reviews(lid)
+    with tabs[2]:
+        _render_discussion(lid)
+    with tabs[3]:
+        _render_notes(lid)
 
-    with st.expander(f'{subject["icon"]} {lesson["title"]}  •  ⭐ {avg} ({count})'):
-        tabs = st.tabs(["📖 الدرس", "📝 الاختبار", "⭐ التقييم", "💬 النقاش"])
-        with tabs[0]:
-            st.markdown(f'**المادة:** {subject["name"]}')
-            st.markdown(lesson["content"])
-            if lesson["image_url"]:
-                if lesson["image_url"].startswith(("http://", "https://")):
-                    st.image(lesson["image_url"], use_container_width=True)
-                elif os.path.isfile(lesson["image_url"]):
-                    st.image(lesson["image_url"], use_container_width=True)
-            if lesson["pdf_url"]:
-                render_pdf(lesson["pdf_url"])
-            c1, c2 = st.columns(2)
-            with c1:
-                if is_favorite(u, lid):
-                    label = "💔 إزالة من المفضلة"
-                else:
-                    label = "❤️ أضف إلى المفضلة"
-                if st.button(label, key=f"fav_{lid}", use_container_width=True):
-                    toggle_favorite(u, lid)
-                    safe_rerun()
-            with c2:
-                if st.button("✍️ ملاحظاتي", key=f"notes_open_{lid}", use_container_width=True):
-                    st.session_state.notes_lesson_id = lid
-                    st.session_state.page = "notes"
-                    safe_rerun()
-        with tabs[1]:
-            questions = load_questions(lid)
-            if questions:
-                if st.button("ابدأ اختبار هذا الدرس", key=f"quiz_lesson_{lid}"):
-                    st.session_state.quiz_lesson_id = lid
-                    st.session_state.page = "quiz"
-                    st.session_state.quiz_started = time.time()
-                    st.session_state.quiz_submitted = False
-                    safe_rerun()
-                st.caption(f"عدد الأسئلة: {len(questions)}")
-            else:
-                st.info("لم تتم إضافة أسئلة لهذا الدرس بعد.")
-        with tabs[2]:
-            _render_reviews(lid)
-        with tabs[3]:
-            _render_discussion(lid)
-
-
-def _render_reviews(lid):
-    u = st.session_state.username
-    with st.form(f"review_form_{lid}"):
-        rating = st.slider("تقييمك من 1 إلى 5", 1, 5, 5)
-        comment = st.text_area("تعليقك (اختياري)")
-        submitted = st.form_submit_button("حفظ التقييم")
-    if submitted:
-        add_review(lid, u, rating, comment)
-        st.success("تم حفظ تقييمك.")
-        safe_rerun()
-
-    st.markdown("**تقييمات التلاميذ**")
-    for review in get_reviews(lid):
-        st.markdown(
-            f'⭐ {review["rating"]}/5 — **{review["username"]}**  \n{review["comment"] or "بدون تعليق"}'
-        )
-
-
-def _render_discussion(lid):
-    u = st.session_state.username
-    with st.form(f"message_form_{lid}"):
-        message = st.text_area("اكتب سؤالك أو تعليقك", max_chars=2000)
-        submitted = st.form_submit_button("إرسال")
-    if submitted and message.strip():
-        add_message(lid, u, message)
-        safe_rerun()
-
-    for msg in get_messages(lid):
-        st.markdown(
-            f'<div class="rm-card"><b>{msg["username"]}</b><br>{msg["message"]}'
-            f'<br><small>{msg["created_at"]}</small></div>',
-            unsafe_allow_html=True,
-        )
-
-
-def _render_notes(lid):
-    u = st.session_state.username
-    st.subheader("📝 ملاحظاتي الشخصية")
-    with st.form(f"note_form_{lid}"):
-        note = st.text_area("أضف ملاحظة لهذا الدرس")
-        submitted = st.form_submit_button("حفظ الملاحظة")
-    if submitted and note.strip():
-        add_note(u, lid, note)
-        st.success("تم حفظ الملاحظة.")
-        safe_rerun()
-    for item in get_notes(u, lid):
-        with st.container(border=True):
-            st.write(item["note"])
-            st.caption(item["created_at"])
-            if st.button("🗑️ حذف", key=f"note_del_{item['id']}"):
-                delete_note(item["id"])
-                safe_rerun()
-
+def render_lessons():
+    st.markdown('<div class="header-banner"><h1>📖 الدروس</h1></div>', unsafe_allow_html=True)
+    c1, c2, c3 = st.columns(3)
+    with c1:
+        subject = st.selectbox("المادة", ["all"] + list(SUBJECTS.keys()),
+                               format_func=lambda x: "الكل" if x == "all" else f"{SUBJECTS[x]['icon']} {SUBJECTS[x]['name']}",
+                               key="filter_subject_select")
+    with c2:
+        language = st.selectbox("اللغة", ["all", "ar", "fr", "en"],
+                                format_func=lambda x: {"all": "الكل", "ar": "العربية", "fr": "الفرنسية", "en": "الإنجليزية"}.get(x, x))
+    with c3:
+        search = st.text_input("🔍 بحث")
+    if "filter_subject" in st.session_state and st.session_state.filter_subject != "all":
+        subject = st.session_state.filter_subject
+        st.session_state.filter_subject = "all"
+    lessons = load_lessons(subject=subject, language=language, search=search)
+    if not lessons:
+        st.info("لا توجد دروس")
+    for lesson in lessons:
+        with st.container():
+            _render_lesson_card(lesson)
+            st.divider()
+    footer()
 
 # ============================================================
 # QUIZ
 # ============================================================
 
-def render_quiz():
-    st.title("📝 الاختبارات")
-    u = st.session_state.username
-
-    lessons = load_lessons()
-    if not lessons:
-        st.info("لا توجد دروس بعد. أضف دروساً وأسئلة من لوحة المطور.")
-        return
-
-    lesson_map = {f'{x["title"]} — {SUBJECTS.get(x["subject"], {}).get("name", x["subject"])} (ID {x["id"]})': x for x in lessons}
-    labels = list(lesson_map.keys())
-
-    default_index = 0
-    existing_id = st.session_state.get("quiz_lesson_id")
-    for i, item in enumerate(lesson_map.values()):
-        if item["id"] == existing_id:
-            default_index = i
-            break
-
-    selected_label = st.selectbox("اختر الدرس", labels, index=default_index)
-    lesson = lesson_map[selected_label]
-    lid = lesson["id"]
-    questions = load_questions(lid)
-
-    if not questions:
-        st.warning("هذا الدرس لا يحتوي على أسئلة.")
-        return
-
-    _render_quiz_ui(questions, lid)
-
-
 def _render_quiz_ui(questions, lesson_id):
-    u = st.session_state.username
-    with get_db() as conn:
-        lesson = conn.execute("SELECT * FROM lessons WHERE id=?", (lesson_id,)).fetchone()
-    if not lesson:
-        st.error("الدرس غير موجود.")
-        return
-
-    if "quiz_started" not in st.session_state or st.session_state.quiz_started is None:
-        st.session_state.quiz_started = time.time()
-    if "quiz_answers" not in st.session_state:
-        st.session_state.quiz_answers = {}
-    if "quiz_submitted" not in st.session_state:
-        st.session_state.quiz_submitted = False
-
-    elapsed = int(time.time() - st.session_state.quiz_started)
+    total = len(questions)
+    start = st.session_state.get("quiz_start_time", time.time())
+    elapsed = time.time() - start
     remaining = max(0, 600 - elapsed)
-    st.progress(remaining / 600)
-    st.markdown(f"### ⏱️ الوقت المتبقي: {remaining // 60:02d}:{remaining % 60:02d}")
-    st.caption("مدة الاختبار 10 دقائق. يتم التصحيح عند الإرسال.")
-
-    if remaining <= 0 and not st.session_state.quiz_submitted:
-        st.warning("انتهى الوقت. أرسل إجاباتك للتصحيح.")
-
-    if st.session_state.quiz_submitted:
-        result_key = f"quiz_result_{lesson_id}"
-        result = st.session_state.get(result_key)
-        if result:
-            st.success(f'النتيجة: {result["score"]}/{result["total"]} — {result["percent"]}%')
-            for i, q in enumerate(questions):
-                chosen = result["answers"].get(str(q["id"]), "")
-                correct = q["correct_answer"]
-                options = {
-                    "A": q["option_a"], "B": q["option_b"],
-                    "C": q["option_c"], "D": q["option_d"],
-                }
-                st.markdown(f'**السؤال {i+1}:** {q["question"]}')
-                st.write(f'إجابتك: {options.get(chosen, "لم تجب")}')
-                st.write(f'الإجابة الصحيحة: {options.get(correct, correct)}')
-                if q["explanation"]:
-                    st.info(q["explanation"])
-            if st.button("🔄 اختبار جديد"):
-                st.session_state.quiz_started = time.time()
-                st.session_state.quiz_answers = {}
-                st.session_state.quiz_submitted = False
-                st.session_state.pop(result_key, None)
-                safe_rerun()
-            return
-
-    answers = {}
-    with st.form(f"quiz_form_{lesson_id}"):
-        for i, q in enumerate(questions):
-            st.markdown(f"#### السؤال {i + 1}")
-            st.write(q["question"])
-            opts = {
-                "A": q["option_a"], "B": q["option_b"],
-                "C": q["option_c"], "D": q["option_d"],
-            }
-            available = {k: v for k, v in opts.items() if v and v.strip()}
-            choices = ["بدون إجابة"] + [f"{k} — {v}" for k, v in available.items()]
-            chosen = st.radio(
-                f"اختر إجابتك للسؤال {i+1}",
-                choices,
-                key=f"answer_{lesson_id}_{q['id']}",
-                index=0,
-            )
-            answer_letter = chosen.split(" — ", 1)[0] if chosen != "بدون إجابة" else ""
-            answers[str(q["id"])] = answer_letter
-            st.divider()
-        submitted = st.form_submit_button("✅ إنهاء الاختبار وتصحيح الإجابات")
-
-    if submitted:
-        score = sum(
-            1 for q in questions
-            if answers.get(str(q["id"])) == q["correct_answer"]
-        )
-        percent = save_quiz_result(
-            u, lesson_id, lesson["title"], lesson["subject"], score, len(questions)
-        )
-        st.session_state[f"quiz_result_{lesson_id}"] = {
-            "score": score,
-            "total": len(questions),
-            "percent": percent,
-            "answers": answers,
-        }
-        st.session_state.quiz_submitted = True
-        st.session_state.quiz_answers = answers
-        safe_rerun()
-
-
-# ============================================================
-# QUICK REVIEW AND FLASHCARDS
-# ============================================================
-
-def render_quick_review():
-    st.title("⚡ مراجعة سريعة")
-    u = st.session_state.username
-    history = get_quiz_history(u, 100)
-    if not history:
-        st.info("أنجز اختباراً واحداً على الأقل لتظهر نتائجك هنا.")
-    else:
-        weaknesses = get_weaknesses(u)
-        if weaknesses:
-            st.subheader("🎯 المواد التي تحتاج إلى مراجعة")
-            for item in weaknesses:
-                name = SUBJECTS.get(item["subject"], {}).get("name", item["subject"])
-                st.warning(f'{name}: متوسط النتائج {item["average"]:.1f}%')
-        else:
-            st.success("أداء جيد! لا توجد مواد بمتوسط أقل من 70%.")
-
-        st.subheader("📈 نتائجك الأخيرة")
-        for item in history[:10]:
-            st.markdown(
-                f'**{item["lesson_title"]}** — {item["score"]}/{item["total"]} '
-                f'({item["percent"]}%)'
-            )
-
-    st.subheader("🎲 سؤال عشوائي")
-    questions = []
-    for lesson in load_lessons():
-        for q in load_questions(lesson["id"]):
-            q["lesson_title"] = lesson["title"]
-            questions.append(q)
-    if questions:
-        if st.button("اختيار سؤال عشوائي"):
-            st.session_state.random_question = random.choice(questions)
-        q = st.session_state.get("random_question")
-        if q:
-            st.markdown(f'### {q["question"]}')
-            opts = [
-                ("A", q["option_a"]), ("B", q["option_b"]),
-                ("C", q["option_c"]), ("D", q["option_d"]),
-            ]
-            opts = [(k, v) for k, v in opts if v]
-            choice = st.radio(
-                "الإجابة",
-                [f"{k} — {v}" for k, v in opts],
-                key=f"random_answer_{q['id']}",
-            )
-            if st.button("تحقق من الإجابة"):
-                answer = choice.split(" — ", 1)[0]
-                if answer == q["correct_answer"]:
-                    st.success("إجابة صحيحة! 🎉")
-                else:
-                    st.error(f'الإجابة الصحيحة هي {q["correct_answer"]}.')
-                if q["explanation"]:
-                    st.info(q["explanation"])
-    else:
-        st.info("أضف أسئلة إلى الدروس لاستخدام المراجعة العشوائية.")
-
-    st.subheader("🧠 إنشاء بطاقة حفظ")
-    with st.form("quick_flashcard"):
-        subject = st.selectbox(
-            "المادة", list(SUBJECTS),
-            format_func=lambda x: f'{SUBJECTS[x]["icon"]} {SUBJECTS[x]["name"]}',
-        )
-        front = st.text_input("السؤال أو المصطلح")
-        back = st.text_area("الجواب أو التعريف")
-        submitted = st.form_submit_button("إضافة البطاقة")
-    if submitted and front.strip() and back.strip():
-        add_flashcard(u, subject, front, back)
-        st.success("تمت إضافة البطاقة.")
-
-
-def render_flashcards():
-    st.title("🧠 بطاقات الحفظ")
-    u = st.session_state.username
-
-    with st.expander("➕ إنشاء بطاقة جديدة"):
-        with st.form("flashcard_create"):
-            subject = st.selectbox(
-                "المادة", list(SUBJECTS),
-                format_func=lambda x: f'{SUBJECTS[x]["icon"]} {SUBJECTS[x]["name"]}',
-            )
-            front = st.text_area("الوجه الأمامي")
-            back = st.text_area("الوجه الخلفي")
-            submitted = st.form_submit_button("حفظ")
-        if submitted and front.strip() and back.strip():
-            add_flashcard(u, subject, front, back)
-            safe_rerun()
-
-    selected_subject = st.selectbox(
-        "تصفية حسب المادة", ["all"] + list(SUBJECTS),
-        format_func=lambda x: "كل المواد" if x == "all" else SUBJECTS[x]["name"],
-    )
-    cards = get_flashcards(u, selected_subject)
-    if not cards:
-        st.info("لا توجد بطاقات بعد.")
+    if remaining <= 0:
+        st.error("⏰ انتهى الوقت!")
+        if st.button("عرض النتيجة"):
+            st.session_state.page = "dashboard"
+            st.rerun()
         return
-
-    index = st.selectbox(
-        "اختر بطاقة",
-        range(len(cards)),
-        format_func=lambda i: f'{i+1}. {cards[i]["front"][:60]}',
-    )
-    card = cards[index]
-    st.markdown(f"""
-    <div class="rm-hero">
-        <h3>❓ السؤال</h3>
-        <p>{card["front"]}</p>
-    </div>
-    """, unsafe_allow_html=True)
-
-    key = f"show_back_{card['id']}"
-    if st.button("👁️ إظهار الجواب", key=f"reveal_{card['id']}"):
-        st.session_state[key] = not st.session_state.get(key, False)
-    if st.session_state.get(key, False):
-        st.markdown(f"""
-        <div class="rm-card">
-            <h3>✅ الجواب</h3>
-            <p>{card["back"]}</p>
-        </div>
-        """, unsafe_allow_html=True)
-
+    mins, secs = divmod(int(remaining), 60)
+    st.markdown(f"### ⏱️ الوقت المتبقي: {mins:02d}:{secs:02d}")
+    st.progress(remaining / 600)
+    answers = st.session_state.get("quiz_answers", {})
+    if "quiz_current" not in st.session_state:
+        st.session_state.quiz_current = 0
+    idx = st.session_state.quiz_current
+    if idx >= total:
+        score = sum(1 for i, q in enumerate(questions) if answers.get(i) == q["correct_answer"])
+        percent = (score / total) * 100 if total else 0
+        save_quiz_result(st.session_state.username, lesson_id,
+                         st.session_state.quiz_lesson_title,
+                         st.session_state.quiz_subject,
+                         score, total, percent)
+        update_user_stats(st.session_state.username, points=score * 10, quiz=True,
+                          perfect=(score == total), subject=st.session_state.quiz_subject)
+        st.success(f"🎉 نتيجتك: {score}/{total} ({percent:.1f}%)")
+        if score == total:
+            st.balloons()
+        st.markdown("### 📋 التصحيح")
+        for i, q in enumerate(questions):
+            user_ans = answers.get(i)
+            correct = q["correct_answer"]
+            icon = "✅" if user_ans == correct else "❌"
+            st.markdown(f"{icon} **{q['question']}**")
+            st.write(f"إجابتك: {user_ans.upper() if user_ans else '—'} | الصحيحة: {correct.upper()}")
+            if q.get("explanation"):
+                st.info(q["explanation"])
+            st.divider()
+        if st.button("العودة للرئيسية"):
+            for k in ["quiz_questions", "quiz_answers", "quiz_current", "quiz_start_time"]:
+                st.session_state.pop(k, None)
+            st.session_state.page = "dashboard"
+            st.rerun()
+        return
+    q = questions[idx]
+    st.markdown(f"#### السؤال {idx + 1} / {total}")
+    st.write(q["question"])
+    options = {
+        "a": q["option_a"], "b": q["option_b"],
+        "c": q["option_c"], "d": q["option_d"],
+    }
+    selected = st.radio("اختر:", list(options.keys()),
+                        format_func=lambda x: f"{x.upper()}) {options[x]}",
+                        index=None, key=f"q_{idx}")
     c1, c2 = st.columns(2)
     with c1:
-        label = "✅ أعرفها" if not card["known"] else "↩️ أراجعها مجدداً"
-        if st.button(label, key=f"known_{card['id']}"):
-            toggle_flashcard_known(card["id"])
-            safe_rerun()
+        if st.button("السابق", disabled=(idx == 0)):
+            st.session_state.quiz_current -= 1
+            st.rerun()
     with c2:
-        if st.button("🗑️ حذف البطاقة", key=f"delete_fc_{card['id']}"):
-            delete_flashcard(card["id"])
-            safe_rerun()
+        if st.button("التالي", disabled=(selected is None)):
+            answers[idx] = selected
+            st.session_state.quiz_answers = answers
+            st.session_state.quiz_current += 1
+            st.rerun()
 
-    known = sum(1 for item in cards if item["known"])
-    st.progress(known / len(cards))
-    st.caption(f"بطاقات معروفة: {known}/{len(cards)}")
+def render_quiz():
+    st.markdown('<div class="header-banner"><h1>📝 الاختبار</h1></div>', unsafe_allow_html=True)
+    questions = st.session_state.get("quiz_questions", [])
+    lesson_id = st.session_state.get("quiz_lesson_id")
+    if not questions:
+        st.warning("لا توجد أسئلة")
+        if st.button("رجوع"):
+            st.session_state.page = "lessons"
+            st.rerun()
+        return
+    _render_quiz_ui(questions, lesson_id)
+    footer()
 
+def render_quick_review():
+    st.markdown('<div class="header-banner"><h1>⚡ مراجعة سريعة</h1></div>', unsafe_allow_html=True)
+    subject = st.selectbox("المادة", list(SUBJECTS.keys()),
+                           format_func=lambda x: f"{SUBJECTS[x]['icon']} {SUBJECTS[x]['name']}")
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("""SELECT q.*, l.title as lesson_title FROM questions q
+                 JOIN lessons l ON q.lesson_id = l.id WHERE l.subject = ? ORDER BY RANDOM() LIMIT 10""", (subject,))
+    questions = [dict(r) for r in c.fetchall()]
+    conn.close()
+    if not questions:
+        st.info("لا توجد أسئلة")
+        footer()
+        return
+    if "qr_answers" not in st.session_state or st.session_state.get("qr_subject") != subject:
+        st.session_state.qr_answers = {}
+        st.session_state.qr_subject = subject
+    answers = st.session_state.qr_answers
+    for i, q in enumerate(questions):
+        st.markdown(f"**{i+1}. {q['question']}**")
+        opts = {"a": q["option_a"], "b": q["option_b"], "c": q["option_c"], "d": q["option_d"]}
+        choice = st.radio("", list(opts.keys()), format_func=lambda x: f"{x.upper()}) {opts[x]}",
+                          index=None, key=f"qr_{i}")
+        if choice:
+            answers[i] = choice
+        st.divider()
+    if st.button("✅ تصحيح"):
+        score = sum(1 for i, q in enumerate(questions) if answers.get(i) == q["correct_answer"])
+        st.success(f"نتيجتك: {score}/{len(questions)}")
+    footer()
+
+# ============================================================
+# DAILY CHALLENGE
+# ============================================================
+
+def render_daily_challenge():
+    st.markdown('<div class="header-banner"><h1>🎯 التحدي اليومي</h1></div>', unsafe_allow_html=True)
+    st.write("5 أسئلة عشوائية — 15 نقطة لكل إجابة صحيحة!")
+    if "daily_questions" not in st.session_state:
+        st.session_state.daily_questions = get_daily_challenge()
+        st.session_state.daily_answers = {}
+        st.session_state.daily_done = False
+    questions = st.session_state.daily_questions
+    if not questions:
+        st.warning("لا توجد أسئلة في قاعدة البيانات")
+        footer()
+        return
+    if st.session_state.daily_done:
+        score = sum(1 for i, q in enumerate(questions) if st.session_state.daily_answers.get(i) == q["correct_answer"])
+        st.success(f"🎉 نتيجتك: {score}/{len(questions)}")
+        if score == len(questions):
+            st.balloons()
+        for i, q in enumerate(questions):
+            user_ans = st.session_state.daily_answers.get(i)
+            correct = q["correct_answer"]
+            icon = "✅" if user_ans == correct else "❌"
+            st.markdown(f"{icon} {q['question']} — الصحيحة: {correct.upper()}")
+        if st.button("تحدي جديد"):
+            st.session_state.daily_questions = get_daily_challenge()
+            st.session_state.daily_answers = {}
+            st.session_state.daily_done = False
+            st.rerun()
+        footer()
+        return
+    for i, q in enumerate(questions):
+        st.markdown(f"**{i+1}. {q['question']}**")
+        opts = {"a": q["option_a"], "b": q["option_b"], "c": q["option_c"], "d": q["option_d"]}
+        choice = st.radio("", list(opts.keys()), format_func=lambda x: f"{x.upper()}) {opts[x]}",
+                          index=None, key=f"daily_{i}")
+        if choice:
+            st.session_state.daily_answers[i] = choice
+    if st.button("✅ إرسال"):
+        score = sum(1 for i, q in enumerate(questions) if st.session_state.daily_answers.get(i) == q["correct_answer"])
+        save_daily_challenge(st.session_state.username, score, len(questions))
+        st.session_state.daily_done = True
+        st.rerun()
+    footer()
+
+# ============================================================
+# POMODORO PAGE
+# ============================================================
+
+def render_pomodoro_page():
+    st.markdown('<div class="header-banner"><h1>⏱️ مؤقت المراجعة</h1></div>', unsafe_allow_html=True)
+    render_pomodoro()
+    footer()
+
+# ============================================================
+# FLASHCARDS
+# ============================================================
+
+def render_flashcards():
+    st.markdown('<div class="header-banner"><h1>🃏 البطاقات التعليمية</h1></div>', unsafe_allow_html=True)
+    with st.expander("➕ إضافة بطاقة"):
+        with st.form("add_fc"):
+            subject = st.selectbox("المادة", list(SUBJECTS.keys()),
+                                   format_func=lambda x: f"{SUBJECTS[x]['icon']} {SUBJECTS[x]['name']}")
+            front = st.text_input("الوجه")
+            back = st.text_area("الظهر")
+            if st.form_submit_button("إضافة"):
+                if front and back:
+                    add_flashcard(st.session_state.username, subject, front, back)
+                    st.success("تمت الإضافة")
+                    st.rerun()
+    subject_filter = st.selectbox("تصفية حسب المادة", ["all"] + list(SUBJECTS.keys()),
+                                  format_func=lambda x: "الكل" if x == "all" else SUBJECTS[x]["name"])
+    cards = get_flashcards(st.session_state.username, subject_filter)
+    if not cards:
+        st.info("لا توجد بطاقات")
+    for card in cards:
+        status = "✅" if card["known"] else "❌"
+        with st.expander(f"{status} {card['front']}"):
+            st.write(card["back"])
+            c1, c2 = st.columns(2)
+            with c1:
+                if st.button("🔄 تبديل", key=f"toggle_{card['id']}"):
+                    toggle_flashcard_known(card["id"])
+                    st.rerun()
+            with c2:
+                if st.button("🗑️ حذف", key=f"del_fc_{card['id']}"):
+                    delete_flashcard(card["id"])
+                    st.rerun()
+    footer()
 
 # ============================================================
 # STUDY PLAN
 # ============================================================
 
 def render_study_plan():
-    st.title("📅 خطة المراجعة")
-    u = st.session_state.username
-
+    st.markdown('<div class="header-banner"><h1>📅 خطة الدراسة</h1></div>', unsafe_allow_html=True)
     c1, c2 = st.columns(2)
     with c1:
-        if st.button("✨ إنشاء خطة تلقائية"):
-            n = auto_generate_plan(u)
-            st.success(f"تم إنشاء {n} مهام للمراجعة.")
-            safe_rerun()
+        if st.button("🔄 توليد تلقائي", use_container_width=True):
+            auto_generate_plan(st.session_state.username)
+            st.success("تم التوليد")
+            st.rerun()
     with c2:
-        if st.button("➕ إضافة مهمة"):
-            st.session_state.show_plan_form = True
-
-    if st.session_state.get("show_plan_form"):
-        with st.form("study_plan_form"):
-            subject = st.selectbox(
-                "المادة", list(SUBJECTS),
-                format_func=lambda x: SUBJECTS[x]["name"],
-            )
-            priority = st.selectbox("الأولوية", ["high", "normal", "low"],
-                                    format_func=lambda x: {"high": "عالية", "normal": "عادية", "low": "منخفضة"}[x])
-            target = st.date_input("تاريخ الإنجاز", value=datetime.date.today())
-            submitted = st.form_submit_button("إضافة")
-        if submitted:
-            add_study_plan(u, subject, priority, target)
-            st.session_state.show_plan_form = False
-            safe_rerun()
-
-    plans = get_study_plan(u)
-    if not plans:
-        st.info("خطتك فارغة. أضف مهاماً أو أنشئ خطة تلقائية.")
-        return
-
-    done = sum(1 for p in plans if p["completed"])
-    st.progress(done / len(plans))
-    st.caption(f"أكملت {done} من {len(plans)} مهمة.")
-
-    for plan in plans:
-        subject = SUBJECTS.get(plan["subject"], {"name": plan["subject"], "icon": "📚"})
-        cols = st.columns([0.6, 4, 1.5, 1])
-        with cols[0]:
-            st.write("✅" if plan["completed"] else "⬜")
-        with cols[1]:
-            st.write(f'{subject["icon"]} {subject["name"]}')
-            st.caption(f'الموعد: {plan["target_date"]} • الأولوية: {plan["priority"]}')
-        with cols[2]:
-            st.write("مكتملة" if plan["completed"] else "قيد الإنجاز")
-        with cols[3]:
-            if st.button("تغيير", key=f"plan_toggle_{plan['id']}"):
-                toggle_study_plan(plan["id"])
-                safe_rerun()
-
+        with st.expander("➕ إضافة مهمة"):
+            with st.form("add_plan"):
+                subject = st.selectbox("المادة", list(SUBJECTS.keys()),
+                                       format_func=lambda x: SUBJECTS[x]["name"])
+                priority = st.selectbox("الأولوية", ["high", "medium", "low"],
+                                        format_func=lambda x: {"high": "🔴 عالية", "medium": "🟡 متوسطة", "low": "🟢 منخفضة"}[x])
+                target = st.date_input("التاريخ المستهدف")
+                if st.form_submit_button("إضافة"):
+                    add_study_plan(st.session_state.username, subject, priority, target.strftime("%Y-%m-%d"))
+                    st.rerun()
+    plan = get_study_plan(st.session_state.username)
+    if not plan:
+        st.info("لا توجد خطة. جرب التوليد التلقائي")
+    for p in plan:
+        status = "✅" if p["completed"] else "⏳"
+        subj_name = SUBJECTS.get(p["subject"], {"name": p["subject"]})["name"]
+        st.markdown(f"{status} **{subj_name}** — {p['priority']} — {p['target_date'] or ''}")
+        if st.button("تبديل", key=f"toggle_plan_{p['id']}"):
+            toggle_study_plan(p["id"])
+            st.rerun()
+    footer()
 
 # ============================================================
-# FRIENDS, LEADERBOARD, REPORTS, NOTIFICATIONS
+# FRIENDS
 # ============================================================
 
 def render_friends():
-    st.title("👥 الأصدقاء")
-    u = st.session_state.username
-    with st.form("add_friend_form"):
-        friend = st.text_input("اسم المستخدم للصديق")
-        submitted = st.form_submit_button("إضافة صديق")
-    if submitted:
-        ok, msg = add_friend(u, friend)
-        (st.success if ok else st.error)(msg)
-
-    friends = get_friends(u)
+    st.markdown('<div class="header-banner"><h1>👥 الأصدقاء</h1></div>', unsafe_allow_html=True)
+    with st.form("add_friend"):
+        fu = st.text_input("اسم المستخدم للصديق")
+        if st.form_submit_button("إرسال طلب"):
+            if fu and fu != st.session_state.username:
+                if add_friend(st.session_state.username, fu):
+                    st.success("تم الإرسال")
+                else:
+                    st.error("موجود مسبقاً")
+            st.rerun()
+    friends = get_friends(st.session_state.username)
     if not friends:
-        st.info("قائمة الأصدقاء فارغة.")
-    for friend in friends:
-        c1, c2 = st.columns([4, 1])
-        c1.write(f'👤 {friend["friend_username"]}')
-        if c2.button("إزالة", key=f'remove_friend_{friend["friend_username"]}'):
-            remove_friend(u, friend["friend_username"])
-            safe_rerun()
+        st.info("لا أصدقاء بعد")
+    for f in friends:
+        st.markdown(f"**{f['friend_username']}** — {f['status']}")
+        if st.button("إزالة", key=f"rm_friend_{f['id']}"):
+            remove_friend(st.session_state.username, f["friend_username"])
+            st.rerun()
+    footer()
 
+# ============================================================
+# LEADERBOARD
+# ============================================================
 
 def render_leaderboard():
-    st.title("🏆 لوحة المتصدرين")
-    period = st.selectbox(
-        "الفترة", ["all", "week", "month"],
-        format_func=lambda x: {"all": "كل الوقت", "week": "آخر 7 أيام", "month": "آخر 30 يوماً"}[x],
-    )
+    st.markdown('<div class="header-banner"><h1>🏆 المتصدرون</h1></div>', unsafe_allow_html=True)
+    period = st.radio("الفترة", ["all", "week", "month"], horizontal=True,
+                      format_func=lambda x: {"all": "الكل", "week": "الأسبوع", "month": "الشهر"}[x])
     board = get_leaderboard(period)
     if not board:
-        st.info("لا توجد نتائج في هذه الفترة.")
-        return
-    for i, row in enumerate(board, 1):
-        medal = {1: "🥇", 2: "🥈", 3: "🥉"}.get(i, f"{i}.")
-        st.markdown(
-            f'<div class="rm-card"><b>{medal} {row["username"]}</b>'
-            f'<br>⭐ النقاط: {row["points"]}'
-            f'<br>📝 الاختبارات: {row["quizzes"]}</div>',
-            unsafe_allow_html=True,
-        )
+        st.info("لا بيانات")
+    for i, row in enumerate(board):
+        medal = ["🥇", "🥈", "🥉"][i] if i < 3 else f"#{i+1}"
+        st.markdown(f"{medal} **{row['full_name'] or row['username']}** — {row['pts']} نقطة")
+    footer()
 
+# ============================================================
+# WEEKLY REPORT
+# ============================================================
 
 def render_weekly_report():
-    st.title("📊 التقرير الأسبوعي")
-    u = st.session_state.username
-    report = get_weekly_report(u)
-    c1, c2, c3, c4 = st.columns(4)
-    c1.metric("الاختبارات", report["quizzes"])
-    c2.metric("الإجابات الصحيحة", report["correct"])
-    c3.metric("مجموع الأسئلة", report["questions"])
-    c4.metric("متوسط النتائج", f'{report["average"]:.1f}%')
-
-    st.subheader("📚 حسب المادة")
-    subject_stats = get_subject_stats(u)
-    if subject_stats:
-        st.dataframe([{
-            "المادة": SUBJECTS.get(x["subject"], {}).get("name", x["subject"]),
-            "الاختبارات": x["quizzes"],
-            "المتوسط": f'{x["average"]:.1f}%' if x["average"] is not None else "—",
-            "أفضل نتيجة": f'{x["best"]:.1f}%' if x["best"] is not None else "—",
-        } for x in subject_stats], use_container_width=True, hide_index=True)
+    st.markdown('<div class="header-banner"><h1>📊 التقرير الأسبوعي</h1></div>', unsafe_allow_html=True)
+    report = get_weekly_report(st.session_state.username)
+    if report:
+        c1, c2, c3 = st.columns(3)
+        with c1:
+            st.metric("الاختبارات", report["cnt"])
+        with c2:
+            st.metric("مجموع النقاط", report["total_score"])
+        with c3:
+            st.metric("المعدل", f"{report['avg_pct']:.1f}%")
+    st.markdown("### 📈 تطور الأداء")
+    render_progress_chart(st.session_state.username)
+    st.markdown("### 📊 إحصائيات المواد")
+    stats = get_subject_stats(st.session_state.username)
+    for s in stats:
+        subj = SUBJECTS.get(s["subject"], {"name": s["subject"], "icon": "📖"})
+        st.markdown(f"{subj['icon']} **{subj['name']}** — {s['cnt']} اختبار — معدل {s['avg_pct']:.1f}%")
+    st.markdown("### ⚠️ نقاط الضعف")
+    weak = get_weaknesses(st.session_state.username)
+    if weak:
+        for w in weak:
+            subj = SUBJECTS.get(w["subject"], {"name": w["subject"]})
+            st.warning(f"{subj['name']} — معدل {w['avg_pct']:.1f}%")
     else:
-        st.info("لا تتوفر بيانات كافية بعد.")
+        st.success("لا نقاط ضعف واضحة")
+    footer()
 
+# ============================================================
+# NOTIFICATIONS
+# ============================================================
 
 def render_notifications():
-    st.title("🔔 الإشعارات")
-    u = st.session_state.username
-    notifications = get_notifications(u)
-    if st.button("✓ وضع الكل كمقروء"):
-        mark_notifications_read(u)
-        safe_rerun()
-    if not notifications:
-        st.info("لا توجد إشعارات.")
-        return
-    for n in notifications:
-        state = "🟢" if not n["is_read"] else "⚪"
-        st.markdown(f"""
-        <div class="rm-card">
-            <h4>{state} {n["icon"]} {n["title"]}</h4>
-            <p>{n["message"]}</p>
-        </div>
-        """, unsafe_allow_html=True)
+    st.markdown('<div class="header-banner"><h1>🔔 الإشعارات</h1></div>', unsafe_allow_html=True)
+    notifs = get_notifications(st.session_state.username)
+    if not notifs:
+        st.info("لا إشعارات")
+    for n in notifs:
+        icon = n["icon"] or "🔔"
+        read = "" if n["is_read"] else "🟢 "
+        st.markdown(f"{read}{icon} **{n['title']}** — {n['message']} _({n['created_at'][:16]})_")
+    if st.button("تعليم الكل كمقروء"):
+        mark_notifications_read(st.session_state.username)
+        st.rerun()
+    footer()
 
+# ============================================================
+# MY STATS
+# ============================================================
 
 def render_my_stats():
-    st.title("📈 إحصائياتي")
-    u = st.session_state.username
-    stats = get_user_stats(u)
-    c1, c2, c3 = st.columns(3)
-    c1.metric("⭐ النقاط", stats["total_points"])
-    c2.metric("🏅 المستوى", stats["level"])
-    c3.metric("🔥 سلسلة الأيام", stats["streak"])
-    st.markdown(f"### اللقب: {get_rank(stats['level'])}")
-    st.progress((stats["total_points"] % 100) / 100)
-    st.caption(f'التقدم نحو المستوى التالي: {stats["total_points"] % 100}/100 نقطة')
-
-    st.subheader("🏆 الإنجازات")
-    earned = json.loads(stats["badges"] or "[]")
-    cols = st.columns(3)
-    for i, (key, label) in enumerate(BADGES.items()):
-        with cols[i % 3]:
+    st.markdown('<div class="header-banner"><h1>📈 إحصائياتي</h1></div>', unsafe_allow_html=True)
+    stats = get_user_stats(st.session_state.username)
+    if stats:
+        c1, c2, c3, c4 = st.columns(4)
+        with c1:
+            st.metric("النقاط", stats["total_points"])
+        with c2:
+            st.metric("المستوى", stats["level"])
+        with c3:
+            st.metric("الاختبارات", stats["quizzes_taken"])
+        with c4:
+            st.metric("العلامات الكاملة", stats["perfect_scores"])
+        st.markdown(f"**اللقب:** {get_rank(stats['level'])}")
+        st.markdown(f"**السلسلة:** {stats['streak']} يوم")
+    render_achievement_tracker()
+    st.markdown("### 🏅 الشارات")
+    earned = get_user_badges(st.session_state.username)
+    cols = st.columns(4)
+    for i, (key, name) in enumerate(BADGES.items()):
+        with cols[i % 4]:
             if key in earned:
-                st.success(label)
+                st.markdown(f'<div class="badge badge-earned">{name}</div>', unsafe_allow_html=True)
             else:
-                st.markdown(f"🔒 {label}")
+                st.markdown(f'<div class="badge" style="opacity:0.4;">🔒 {name}</div>', unsafe_allow_html=True)
+    st.markdown("### 📜 سجل الاختبارات")
+    history = get_quiz_history(st.session_state.username, 20)
+    for h in history:
+        st.markdown(f"**{h['lesson_title']}** — {h['score']}/{h['total']} ({h['percent']:.1f}%) — {h['created_at'][:16]}")
+    st.markdown("### 📈 تطور الأداء")
+    render_progress_chart(st.session_state.username)
+    footer()
 
-    st.subheader("📚 المواد التي درستها")
-    subjects = json.loads(stats["unique_subjects"] or "[]")
-    for key in subjects:
-        if key in SUBJECTS:
-            st.write(f'{SUBJECTS[key]["icon"]} {SUBJECTS[key]["name"]}')
-
+# ============================================================
+# FAVORITES
+# ============================================================
 
 def render_favorites():
-    st.title("❤️ دروسي المفضلة")
-    favorites = get_favorites(st.session_state.username)
-    if not favorites:
-        st.info("لم تضف أي درس إلى المفضلة بعد.")
-    for lesson in favorites:
-        with st.expander(lesson["title"]):
-            st.markdown(lesson["content"])
-            if st.button("إزالة من المفضلة", key=f"remove_favorite_{lesson['id']}"):
-                toggle_favorite(st.session_state.username, lesson["id"])
-                safe_rerun()
-
+    st.markdown('<div class="header-banner"><h1>❤️ المفضلة</h1></div>', unsafe_allow_html=True)
+    favs = get_favorites(st.session_state.username)
+    if not favs:
+        st.info("لا توجد دروس مفضلة")
+    for lesson in favs:
+        _render_lesson_card(lesson)
+        st.divider()
+    footer()
 
 # ============================================================
 # DEVELOPER PANEL
 # ============================================================
 
 def render_developer_panel():
-    st.title("🛠️ لوحة المطور")
-    st.caption("إدارة الدروس والأسئلة التعليمية.")
-
-    tabs = st.tabs(["➕ إضافة درس", "📝 إضافة أسئلة", "📚 إدارة الدروس", "📊 إحصائيات"])
-
-    with tabs[0]:
-        with st.form("developer_add_lesson"):
-            subject = st.selectbox(
-                "المادة", list(SUBJECTS),
-                format_func=lambda x: f'{SUBJECTS[x]["icon"]} {SUBJECTS[x]["name"]}',
-            )
-            language = st.selectbox("اللغة", ["ar", "fr", "en"],
-                                    format_func=lambda x: {"ar": "العربية", "fr": "Français", "en": "English"}[x])
-            title = st.text_input("عنوان الدرس")
-            content = st.text_area("محتوى الدرس (يدعم Markdown)", height=250)
-            image_url = st.text_input("رابط الصورة (اختياري)")
-            pdf_url = st.text_input("رابط PDF (اختياري)")
-            uploaded_image = st.file_uploader("أو ارفع صورة", type=["png", "jpg", "jpeg", "webp"])
-            uploaded_pdf = st.file_uploader("أو ارفع ملف PDF", type=["pdf"])
-            submitted = st.form_submit_button("💾 حفظ الدرس")
-
-        if submitted:
-            if not title.strip() or not content.strip():
-                st.error("العنوان والمحتوى مطلوبان.")
-            else:
-                if uploaded_image:
-                    image_url = upload_file(uploaded_image, "images")
-                if uploaded_pdf:
-                    pdf_url = upload_file(uploaded_pdf, "pdfs")
-                lid = add_lesson(subject, language, title, content, image_url, pdf_url)
-                add_notification(
-                    st.session_state.username, "تم إنشاء درس",
-                    f"تمت إضافة الدرس: {title}", "📚",
-                )
-                st.success(f"تم حفظ الدرس بنجاح. رقم الدرس: {lid}")
-                safe_rerun()
-
-    with tabs[1]:
+    st.markdown('<div class="header-banner"><h1>🛠️ لوحة المطور</h1></div>', unsafe_allow_html=True)
+    tab1, tab2, tab3, tab4 = st.tabs(["📚 الدروس", "❓ الأسئلة", "👥 المستخدمون", "📊 إحصائيات"])
+    with tab1:
+        with st.expander("➕ إضافة درس"):
+            with st.form("add_lesson_form"):
+                subject = st.selectbox("المادة", list(SUBJECTS.keys()),
+                                       format_func=lambda x: f"{SUBJECTS[x]['icon']} {SUBJECTS[x]['name']}")
+                language = st.selectbox("اللغة", ["ar", "fr", "en"])
+                title = st.text_input("العنوان")
+                content = st.text_area("المحتوى")
+                image_url = st.text_input("رابط الصورة")
+                pdf_file = st.file_uploader("رفع PDF", type=["pdf"])
+                if st.form_submit_button("إضافة الدرس"):
+                    pdf_path = None
+                    if pdf_file:
+                        pdf_path = upload_file(pdf_file, "pdfs")
+                    if title:
+                        add_lesson(subject, language, title, content, image_url, pdf_path, st.session_state.username)
+                        st.success("تمت الإضافة")
+                        st.rerun()
         lessons = load_lessons()
-        if not lessons:
-            st.info("أضف درساً أولاً.")
-        else:
-            lesson_map = {f'{x["title"]} (ID {x["id"]})': x for x in lessons}
-            selected = st.selectbox("اختر الدرس", list(lesson_map.keys()), key="dev_question_lesson")
-            lesson = lesson_map[selected]
-            with st.form("developer_add_question"):
-                question = st.text_area("نص السؤال")
-                a = st.text_input("الخيار A")
-                b = st.text_input("الخيار B")
-                c = st.text_input("الخيار C")
-                d = st.text_input("الخيار D")
-                correct = st.selectbox("الإجابة الصحيحة", ["A", "B", "C", "D"])
-                explanation = st.text_area("شرح الإجابة")
-                submitted = st.form_submit_button("إضافة السؤال")
-            if submitted:
-                if not question.strip() or not a.strip() or not b.strip():
-                    st.error("السؤال والخياران A وB مطلوبان.")
-                else:
-                    add_question(
-                        lesson["id"], question, a, b, c, d, correct, explanation
-                    )
-                    st.success("تمت إضافة السؤال.")
-                    safe_rerun()
-
-            st.markdown("**الأسئلة الموجودة**")
-            for q in load_questions(lesson["id"]):
-                with st.container(border=True):
-                    st.write(q["question"])
-                    st.caption(f'الإجابة الصحيحة: {q["correct_answer"]}')
-                    if st.button("حذف السؤال", key=f'delete_question_{q["id"]}'):
-                        delete_question(q["id"])
-                        safe_rerun()
-
-    with tabs[2]:
-        lessons = load_lessons()
-        if not lessons:
-            st.info("لا توجد دروس.")
+        st.markdown(f"**إجمالي الدروس:** {len(lessons)}")
         for lesson in lessons:
-            with st.expander(f'{lesson["title"]} — {lesson["id"]}'):
-                st.write(SUBJECTS.get(lesson["subject"], {}).get("name", lesson["subject"]))
-                st.write(lesson["content"][:500])
-                st.caption(f'المالك: {lesson["owner"]}')
-                if st.button("🗑️ حذف الدرس", key=f'delete_lesson_{lesson["id"]}'):
+            with st.expander(f"{SUBJECTS.get(lesson['subject'], {'icon':'📖'})['icon']} {lesson['title']}"):
+                st.write(lesson["content"])
+                if st.button("🗑️ حذف", key=f"del_lesson_{lesson['id']}"):
                     delete_lesson(lesson["id"])
-                    safe_rerun()
-
-    with tabs[3]:
-        with get_db() as conn:
-            users_count = conn.execute("SELECT COUNT(*) FROM users").fetchone()[0]
-            lessons_count = conn.execute("SELECT COUNT(*) FROM lessons").fetchone()[0]
-            questions_count = conn.execute("SELECT COUNT(*) FROM questions").fetchone()[0]
-            quizzes_count = conn.execute("SELECT COUNT(*) FROM quiz_history").fetchone()[0]
-        a, b, c, d = st.columns(4)
-        a.metric("المستخدمون", users_count)
-        b.metric("الدروس", lessons_count)
-        c.metric("الأسئلة", questions_count)
-        d.metric("الاختبارات المنجزة", quizzes_count)
-
+                    st.rerun()
+    with tab2:
+        with st.expander("➕ إضافة سؤال"):
+            lessons = load_lessons()
+            if lessons:
+                with st.form("add_question_form"):
+                    lesson_options = {l["id"]: f"{l['title']} ({l['subject']})" for l in lessons}
+                    lid = st.selectbox("الدرس", list(lesson_options.keys()),
+                                       format_func=lambda x: lesson_options[x])
+                    question = st.text_input("السؤال")
+                    a = st.text_input("الخيار أ")
+                    b = st.text_input("الخيار ب")
+                    c_opt = st.text_input("الخيار ج")
+                    d = st.text_input("الخيار د")
+                    correct = st.selectbox("الإجابة الصحيحة", ["a", "b", "c", "d"])
+                    explanation = st.text_area("الشرح")
+                    if st.form_submit_button("إضافة السؤال"):
+                        if question and a and b and c_opt and d:
+                            add_question(lid, question, a, b, c_opt, d, correct, explanation)
+                            st.success("تمت الإضافة")
+                            st.rerun()
+        lessons = load_lessons()
+        for lesson in lessons:
+            questions = load_questions(lesson["id"])
+            if questions:
+                st.markdown(f"**{lesson['title']}** ({len(questions)} أسئلة)")
+                for q in questions:
+                    with st.expander(q["question"]):
+                        st.write(f"أ) {q['option_a']}")
+                        st.write(f"ب) {q['option_b']}")
+                        st.write(f"ج) {q['option_c']}")
+                        st.write(f"د) {q['option_d']}")
+                        st.success(f"الإجابة: {q['correct_answer']}")
+                        if q["explanation"]:
+                            st.info(q["explanation"])
+                        if st.button("🗑️ حذف", key=f"del_q_{q['id']}"):
+                            delete_question(q["id"])
+                            st.rerun()
+    with tab3:
+        conn = get_db()
+        c = conn.cursor()
+        c.execute("SELECT * FROM users ORDER BY created_at DESC")
+        users = c.fetchall()
+        conn.close()
+        st.markdown(f"**إجمالي المستخدمين:** {len(users)}")
+        for user in users:
+            st.markdown(f"**{user['username']}** — {user['full_name']} — {user['role']} — {user['created_at'][:10]}")
+    with tab4:
+        conn = get_db()
+        c = conn.cursor()
+        c.execute("SELECT COUNT(*) as cnt FROM lessons")
+        total_lessons = c.fetchone()["cnt"]
+        c.execute("SELECT COUNT(*) as cnt FROM questions")
+        total_questions = c.fetchone()["cnt"]
+        c.execute("SELECT COUNT(*) as cnt FROM quiz_history")
+        total_quizzes = c.fetchone()["cnt"]
+        c.execute("SELECT COUNT(*) as cnt FROM users")
+        total_users = c.fetchone()["cnt"]
+        conn.close()
+        c1, c2, c3, c4 = st.columns(4)
+        with c1:
+            st.metric("الدروس", total_lessons)
+        with c2:
+            st.metric("الأسئلة", total_questions)
+        with c3:
+            st.metric("الاختبارات", total_quizzes)
+        with c4:
+            st.metric("المستخدمون", total_users)
+    footer()
 
 # ============================================================
-# SIDEBAR AND ROUTING
+# SIDEBAR
 # ============================================================
 
 def render_sidebar():
     with st.sidebar:
-        st.markdown("## 📚 RevisioMaroc")
-        st.caption(f'{st.session_state.full_name} (@{st.session_state.username})')
-
-        st.selectbox("🎨 " + T("theme"), list(THEMES.keys()), key="theme")
-        st.selectbox(
-            "🌐 " + T("language"),
-            ["ar", "fr", "en"],
-            format_func=lambda x: {"ar": "العربية", "fr": "Français", "en": "English"}[x],
-            key="language",
-        )
-        apply_theme()
+        st.markdown(f"### 👤 {st.session_state.full_name or st.session_state.username}")
+        stats = get_user_stats(st.session_state.username)
+        if stats:
+            st.markdown(f"**{get_rank(stats['level'])}** — المستوى {stats['level']}")
+            st.progress((stats["total_points"] % 100) / 100)
+        theme_keys = list(THEMES.keys())
+        theme_names = [THEMES[k]["name"] for k in theme_keys]
+        current_theme = st.session_state.get("theme", "fcb")
+        theme_idx = theme_keys.index(current_theme) if current_theme in theme_keys else 0
+        selected_theme = st.selectbox("🎨 الثيم", theme_names, index=theme_idx)
+        st.session_state.theme = theme_keys[theme_names.index(selected_theme)]
+        lang_options = ["ar", "fr", "en"]
+        lang_names = ["العربية", "Français", "English"]
+        current_lang = st.session_state.get("language", "ar")
+        lang_idx = lang_options.index(current_lang) if current_lang in lang_options else 0
+        selected_lang = st.selectbox("🌐 اللغة", lang_names, index=lang_idx)
+        st.session_state.language = lang_options[lang_names.index(selected_lang)]
         st.divider()
-
         pages = [
-            ("home", "🏠 " + T("home")),
-            ("lessons", "📚 " + T("lessons")),
-            ("quiz", "📝 " + T("quiz")),
-            ("review", "⚡ " + T("review")),
-            ("flashcards", "🧠 " + T("flashcards")),
-            ("plan", "📅 " + T("plan")),
-            ("friends", "👥 " + T("friends")),
-            ("leaderboard", "🏆 " + T("leaderboard")),
-            ("report", "📊 " + T("report")),
-            ("notifications", "🔔 " + T("notifications")),
-            ("stats", "📈 " + T("stats")),
-            ("favorites", "❤️ " + T("favorites")),
-            ("notes", "📝 ملاحظاتي"),
+            ("dashboard", "🏠", T("home")),
+            ("lessons", "📖", T("lessons")),
+            ("daily_challenge", "🎯", "التحدي اليومي"),
+            ("quick_review", "⚡", T("quick_review")),
+            ("pomodoro", "⏱️", "مؤقت المراجعة"),
+            ("flashcards", "🃏", T("flashcards")),
+            ("study_plan", "📅", T("study_plan")),
+            ("friends", "👥", T("friends")),
+            ("leaderboard", "🏆", T("leaderboard")),
+            ("weekly_report", "📊", T("weekly_report")),
+            ("notifications", "🔔", T("notifications")),
+            ("my_stats", "📈", T("my_stats")),
+            ("favorites", "❤️", T("favorites")),
         ]
         if st.session_state.role == "developer":
-            pages.append(("developer", "🛠️ " + T("developer")))
-
-        for key, label in pages:
-            if st.button(label, key=f"nav_{key}", use_container_width=True):
-                st.session_state.page = key
-                safe_rerun()
-
+            pages.append(("developer_panel", "🛠️", T("developer")))
+        for page_key, icon, label in pages:
+            if st.button(f"{icon} {label}", key=f"nav_{page_key}", use_container_width=True):
+                st.session_state.page = page_key
+                st.rerun()
         st.divider()
-        stats = get_user_stats(st.session_state.username)
-        st.metric("⭐ النقاط", stats["total_points"])
-        st.metric("🏅 المستوى", stats["level"])
-        if st.button("🚪 " + T("logout"), use_container_width=True):
+        unread = get_notifications(st.session_state.username, unread=True)
+        if unread:
+            st.info(f"🔔 لديك {len(unread)} إشعارات جديدة")
+        if st.button(f"🚪 {T('logout')}", use_container_width=True):
             for key in list(st.session_state.keys()):
                 del st.session_state[key]
-            st.session_state.authenticated = False
-            st.session_state.auth_route = "home"
-            safe_rerun()
-
-
-def render_notes_page():
-    st.title("📝 ملاحظاتي")
-    lessons = load_lessons()
-    if not lessons:
-        st.info("لا توجد دروس لإضافة ملاحظات إليها.")
-        return
-    lesson_map = {f'{x["title"]} (ID {x["id"]})': x for x in lessons}
-    labels = list(lesson_map.keys())
-    default_index = 0
-    selected_id = st.session_state.get("notes_lesson_id")
-    for i, lesson in enumerate(lesson_map.values()):
-        if lesson["id"] == selected_id:
-            default_index = i
-            break
-    selected = st.selectbox("الدرس", labels, index=default_index)
-    _render_notes(lesson_map[selected]["id"])
-
+            st.rerun()
 
 # ============================================================
-# INITIALIZATION AND MAIN
+# MAIN
 # ============================================================
 
-def main():
-    init_db()
+init_db()
 
-    defaults = {
-        "authenticated": False,
-        "auth_route": "home",
-        "page": "home",
-        "theme": "🌙 Midnight Purple",
-        "language": "ar",
-        "quiz_answers": {},
-        "quiz_submitted": False,
-        "quiz_started": None,
-        "selected_subject": "all",
-    }
-    for key, value in defaults.items():
-        if key not in st.session_state:
-            st.session_state[key] = value
+if "theme" not in st.session_state:
+    st.session_state.theme = "fcb"
+if "language" not in st.session_state:
+    st.session_state.language = "ar"
+if "authenticated" not in st.session_state:
+    st.session_state.authenticated = False
+if "page" not in st.session_state:
+    st.session_state.page = "dashboard"
 
-    apply_theme()
+st.set_page_config(page_title="3AC RevisioMaroc", page_icon="📚", layout="wide")
+apply_theme()
 
-    if not st.session_state.authenticated:
-        render_auth_page()
-        st.stop()
+if not st.session_state.authenticated:
+    render_auth_page()
+    st.stop()
 
-    render_sidebar()
-    apply_theme()
+render_sidebar()
 
-    page = st.session_state.get("page", "home")
-    routes = {
-        "home": render_dashboard,
-        "lessons": render_lessons,
-        "quiz": render_quiz,
-        "review": render_quick_review,
-        "flashcards": render_flashcards,
-        "plan": render_study_plan,
-        "friends": render_friends,
-        "leaderboard": render_leaderboard,
-        "report": render_weekly_report,
-        "notifications": render_notifications,
-        "stats": render_my_stats,
-        "favorites": render_favorites,
-        "notes": render_notes_page,
-        "developer": render_developer_panel,
-    }
-
-    if page == "developer" and st.session_state.role != "developer":
-        st.error("هذه الصفحة متاحة للمطور فقط.")
-        st.session_state.page = "home"
-        safe_rerun()
-
-    render_function = routes.get(page, render_dashboard)
-    render_function()
-    render_footer()
-
-
-if __name__ == "__main__":
-    main()
+page = st.session_state.get("page", "dashboard")
+if page == "dashboard":
+    render_dashboard()
+elif page == "lessons":
+    render_lessons()
+elif page == "quiz":
+    render_quiz()
+elif page == "daily_challenge":
+    render_daily_challenge()
+elif page == "pomodoro":
+    render_pomodoro_page()
+elif page == "quick_review":
+    render_quick_review()
+elif page == "flashcards":
+    render_flashcards()
+elif page == "study_plan":
+    render_study_plan()
+elif page == "friends":
+    render_friends()
+elif page == "leaderboard":
+    render_leaderboard()
+elif page == "weekly_report":
+    render_weekly_report()
+elif page == "notifications":
+    render_notifications()
+elif page == "my_stats":
+    render_my_stats()
+elif page == "favorites":
+    render_favorites()
+elif page == "developer_panel":
+    if st.session_state.role == "developer":
+        render_developer_panel()
+    else:
+        st.error("غير مصرح")
+else:
+    render_dashboard()
