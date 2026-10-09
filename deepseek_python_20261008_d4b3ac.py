@@ -25,16 +25,33 @@ st.set_page_config(
 )
 
 # ----------------------------------------------------------------------------
-# الاتصال بـ Supabase (بصيغة [supabase])
+# الاتصال بـ Supabase
 # ----------------------------------------------------------------------------
 @st.cache_resource(show_spinner=False)
 def get_supabase():
     try:
-        url = st.secrets["supabase"]["url"]
-        key = st.secrets["supabase"]["key"]
+        if "supabase" not in st.secrets:
+            st.error("❌ القسم [supabase] ما كاينش فـ .streamlit/secrets.toml")
+            return None
+
+        url = str(st.secrets["supabase"]["url"]).strip().rstrip("/")
+        key = str(st.secrets["supabase"]["key"]).strip()
+
+        if not url.startswith("https://"):
+            st.error("❌ الـ URL غالط: خاصو يبدا بـ https://")
+            return None
+
+        if len(key) < 100:
+            st.error(f"❌ المفتاح ناقص — الطول: {len(key)}")
+            return None
+
         return create_client(url, key)
+
+    except KeyError as e:
+        st.error(f"❌ مفتاح ناقص فـ secrets.toml: {e}")
+        return None
     except Exception as e:
-        st.error(f"❌ تعذر الاتصال بـ Supabase: {e}")
+        st.error(f"❌ تعذر الاتصال بـ Supabase: {type(e).__name__} — {e}")
         return None
 
 supabase = get_supabase()
@@ -51,7 +68,7 @@ def hash_password(password):
 def register_user(username, password, full_name=""):
     if supabase is None:
         return False, "❌ الاتصال بقاعدة البيانات غير متوفر"
-    if username.lower() in ["soufiane", "soufiane2026", "admin"]:
+    if username.lower() in ["soufiane", "soufianedev", "soufiane2026", "admin"]:
         return False, "❌ هذا الاسم محجوز"
     if len(password) < 4:
         return False, "❌ كلمة المرور قصيرة جداً (4 أحرف على الأقل)"
