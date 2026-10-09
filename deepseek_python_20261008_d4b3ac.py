@@ -1,18 +1,15 @@
 # ============================================================================
-# 3AC RevisioMaroc - نسخة التلاميذ (بلا مطور)
+# 3AC RevisioMaroc - نسخة SQLite
 # © 2026 Soufiane Ouhazza - All Rights Reserved
-# ============================================================================
-# التثبيت:
-#   pip install streamlit supabase pandas
-#
-# التشغيل:
-#   streamlit run app.py
 # ============================================================================
 
 import streamlit as st
 import hashlib
+import sqlite3
+import os
+import base64
 from datetime import datetime
-from supabase import create_client, Client
+from pathlib import Path
 
 # ----------------------------------------------------------------------------
 # إعدادات الصفحة
@@ -25,80 +22,121 @@ st.set_page_config(
 )
 
 # ----------------------------------------------------------------------------
-# الاتصال بـ Supabase
+# إعداد قاعدة البيانات SQLite
 # ----------------------------------------------------------------------------
-@st.cache_resource(show_spinner=False)
-def get_supabase():
-    try:
-        if "supabase" not in st.secrets:
-            st.error("❌ القسم [supabase] ما كاينش فـ .streamlit/secrets.toml")
-            return None
+DB_PATH = "revisiomaroc.db"
+UPLOAD_DIR = Path("uploads")
+UPLOAD_DIR.mkdir(exist_ok=True)
 
-        url = str(st.secrets["supabase"]["url"]).strip().rstrip("/")
-        key = str(st.secrets["supabase"]["key"]).strip()
+def get_db():
+    conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+    conn.row_factory = sqlite3.Row
+    return conn
 
-        if not url.startswith("https://"):
-            st.error("❌ الـ URL غالط: خاصو يبدا بـ https://")
-            return None
+def init_db():
+    conn = get_db()
+    c = conn.cursor()
 
-        if len(key) < 100:
-            st.error(f"❌ المفتاح ناقص — الطول: {len(key)}")
-            return None
+    # جدول المستخدمين
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS users (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT UNIQUE NOT NULL,
+            password_hash TEXT NOT NULL,
+            role TEXT NOT NULL DEFAULT 'student',
+            full_name TEXT,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
 
-        return create_client(url, key)
+    # جدول الدروس
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS lessons (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            subject TEXT NOT NULL,
+            language TEXT NOT NULL,
+            title TEXT NOT NULL,
+            content TEXT,
+            image_url TEXT,
+            pdf_url TEXT,
+            owner TEXT NOT NULL DEFAULT 'public',
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
 
-    except KeyError as e:
-        st.error(f"❌ مفتاح ناقص فـ secrets.toml: {e}")
-        return None
-    except Exception as e:
-        st.error(f"❌ تعذر الاتصال بـ Supabase: {type(e).__name__} — {e}")
-        return None
+    # جدول الأسئلة
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS questions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            lesson_id TEXT NOT NULL,
+            question TEXT NOT NULL,
+            option_a TEXT NOT NULL,
+            option_b TEXT NOT NULL,
+            option_c TEXT NOT NULL,
+            option_d TEXT NOT NULL,
+            correct_answer TEXT NOT NULL,
+            explanation TEXT,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
 
-supabase = get_supabase()
+    # إنشاء حساب المطور إذا ما كانش
+    c.execute("SELECT * FROM users WHERE username = ?", ("soufianeDEV",))
+    if not c.fetchone():
+        dev_hash = hashlib.sha256("soufiane2030".encode()).hexdigest()
+        c.execute(
+            "INSERT INTO users (username, password_hash, role, full_name) VALUES (?, ?, ?, ?)",
+            ("soufianeDEV", dev_hash, "developer", "Soufiane Ouhazza")
+        )
+
+    conn.commit()
+    conn.close()
+
+init_db()
 
 # ----------------------------------------------------------------------------
-# تشفير كلمة المرور
+# دوال مساعدة
 # ----------------------------------------------------------------------------
 def hash_password(password):
     return hashlib.sha256(password.encode()).hexdigest()
 
-# ----------------------------------------------------------------------------
-# إدارة المستخدمين
-# ----------------------------------------------------------------------------
 def register_user(username, password, full_name=""):
-    if supabase is None:
-        return False, "❌ الاتصال بقاعدة البيانات غير متوفر"
     if len(password) < 4:
         return False, "❌ كلمة المرور قصيرة جداً (4 أحرف على الأقل)"
 
     try:
-        res = supabase.table("users").select("username").eq("username", username).execute()
-        if res.data:
+        conn = get_db()
+        c = conn.cursor()
+        c.execute("SELECT username FROM users WHERE username = ?", (username,))
+        if c.fetchone():
+            conn.close()
             return False, "❌ اسم المستخدم موجود مسبقاً"
 
-        supabase.table("users").insert({
-            "username": username,
-            "password_hash": hash_password(password),
-            "role": "student",
-            "full_name": full_name or username
-        }).execute()
+        c.execute(
+            "INSERT INTO users (username, password_hash, role, full_name) VALUES (?, ?, ?, ?)",
+            (username, hash_password(password), "student", full_name or username)
+        )
+        conn.commit()
+        conn.close()
         return True, "✅ تم إنشاء الحساب بنجاح"
     except Exception as e:
         return False, f"❌ خطأ: {e}"
 
 def authenticate(username, password):
-    if supabase is None:
-        return False, None
     try:
-        res = supabase.table("users").select("*").eq("username", username).execute()
-        if not res.data:
+        conn = get_db()
+        c = conn.cursor()
+        c.execute("SELECT * FROM users WHERE username = ?", (username,))
+        row = c.fetchone()
+        conn.close()
+
+        if not row:
             return False, None
-        user = res.data[0]
-        if user["password_hash"] == hash_password(password):
+
+        if row["password_hash"] == hash_password(password):
             return True, {
-                "password": user["password_hash"],
-                "role": user["role"],
-                "full_name": user.get("full_name", username)
+                "role": row["role"],
+                "full_name": row["full_name"] or username
             }
         return False, None
     except Exception as e:
@@ -109,47 +147,53 @@ def authenticate(username, password):
 # إدارة الدروس
 # ----------------------------------------------------------------------------
 def load_lessons(subject=None, language=None, owner=None):
-    if supabase is None:
-        return []
     try:
-        query = supabase.table("lessons").select("*")
+        conn = get_db()
+        c = conn.cursor()
+        query = "SELECT * FROM lessons WHERE 1=1"
+        params = []
         if subject:
-            query = query.eq("subject", subject)
+            query += " AND subject = ?"
+            params.append(subject)
         if language:
-            query = query.eq("language", language)
+            query += " AND language = ?"
+            params.append(language)
         if owner is not None:
-            query = query.eq("owner", owner)
-        res = query.execute()
-        return res.data
+            query += " AND owner = ?"
+            params.append(owner)
+        c.execute(query, params)
+        rows = [dict(r) for r in c.fetchall()]
+        conn.close()
+        return rows
     except Exception as e:
         st.error(f"❌ خطأ في جلب الدروس: {e}")
         return []
 
 def add_lesson(subject, language, title, content, image_url=None, pdf_url=None, owner="public"):
-    if supabase is None:
-        return False, "❌ الاتصال غير متوفر"
     try:
-        supabase.table("lessons").insert({
-            "subject": subject,
-            "language": language,
-            "title": title,
-            "content": content,
-            "image_url": image_url,
-            "pdf_url": pdf_url,
-            "owner": owner
-        }).execute()
+        conn = get_db()
+        c = conn.cursor()
+        c.execute(
+            """INSERT INTO lessons (subject, language, title, content, image_url, pdf_url, owner)
+               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            (subject, language, title, content, image_url, pdf_url, owner)
+        )
+        conn.commit()
+        conn.close()
         return True, "✅ تم الحفظ"
     except Exception as e:
         return False, f"❌ خطأ: {e}"
 
 def delete_lesson(lesson_id, owner_filter=None):
-    if supabase is None:
-        return False
     try:
-        query = supabase.table("lessons").delete().eq("id", lesson_id)
+        conn = get_db()
+        c = conn.cursor()
         if owner_filter:
-            query = query.eq("owner", owner_filter)
-        query.execute()
+            c.execute("DELETE FROM lessons WHERE id = ? AND owner = ?", (lesson_id, owner_filter))
+        else:
+            c.execute("DELETE FROM lessons WHERE id = ?", (lesson_id,))
+        conn.commit()
+        conn.close()
         return True
     except Exception:
         return False
@@ -158,18 +202,21 @@ def delete_lesson(lesson_id, owner_filter=None):
 # إدارة الأسئلة
 # ----------------------------------------------------------------------------
 def load_questions(lesson_id):
-    if supabase is None:
-        return []
     try:
-        res = supabase.table("questions").select("*").eq("lesson_id", str(lesson_id)).execute()
+        conn = get_db()
+        c = conn.cursor()
+        c.execute("SELECT * FROM questions WHERE lesson_id = ?", (str(lesson_id),))
+        rows = c.fetchall()
+        conn.close()
+
         questions = []
-        for q in res.data:
+        for q in rows:
             questions.append({
                 "id": q["id"],
                 "question": q["question"],
                 "options": [q["option_a"], q["option_b"], q["option_c"], q["option_d"]],
                 "correct": ord(q["correct_answer"]) - 65,
-                "explanation": q.get("explanation", "")
+                "explanation": q["explanation"] or ""
             })
         return questions
     except Exception as e:
@@ -177,58 +224,63 @@ def load_questions(lesson_id):
         return []
 
 def add_question(lesson_id, question, opt_a, opt_b, opt_c, opt_d, correct_letter, explanation=""):
-    if supabase is None:
-        return False, "❌ الاتصال غير متوفر"
     try:
-        supabase.table("questions").insert({
-            "lesson_id": str(lesson_id),
-            "question": question,
-            "option_a": opt_a,
-            "option_b": opt_b,
-            "option_c": opt_c,
-            "option_d": opt_d,
-            "correct_answer": correct_letter,
-            "explanation": explanation
-        }).execute()
+        conn = get_db()
+        c = conn.cursor()
+        c.execute(
+            """INSERT INTO questions 
+               (lesson_id, question, option_a, option_b, option_c, option_d, correct_answer, explanation)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+            (str(lesson_id), question, opt_a, opt_b, opt_c, opt_d, correct_letter, explanation)
+        )
+        conn.commit()
+        conn.close()
         return True, "✅ تم الحفظ"
     except Exception as e:
         return False, f"❌ خطأ: {e}"
 
 def delete_question(question_id):
-    if supabase is None:
-        return False
     try:
-        supabase.table("questions").delete().eq("id", question_id).execute()
+        conn = get_db()
+        c = conn.cursor()
+        c.execute("DELETE FROM questions WHERE id = ?", (question_id,))
+        conn.commit()
+        conn.close()
         return True
     except Exception:
         return False
 
 # ----------------------------------------------------------------------------
-# رفع الملفات
+# رفع الملفات (تخزين محلي)
 # ----------------------------------------------------------------------------
 def upload_file(uploaded_file, folder="uploads"):
-    if supabase is None or uploaded_file is None:
+    if uploaded_file is None:
         return None
     try:
+        folder_path = UPLOAD_DIR / folder
+        folder_path.mkdir(parents=True, exist_ok=True)
+
         timestamp = int(datetime.now().timestamp() * 1000)
         safe_name = "".join(c for c in uploaded_file.name if c.isalnum() or c in "._-")
-        filename = f"{folder}/{timestamp}_{safe_name}"
-        file_bytes = uploaded_file.getbuffer()
+        filename = f"{timestamp}_{safe_name}"
+        filepath = folder_path / filename
 
-        supabase.storage.from_("lessons").upload(
-            filename,
-            file_bytes,
-            {"content-type": uploaded_file.type}
-        )
-        res = supabase.storage.from_("lessons").get_public_url(filename)
-        return res
+        with open(filepath, "wb") as f:
+            f.write(uploaded_file.getbuffer())
+
+        return str(filepath)
     except Exception as e:
         st.error(f"❌ خطأ في رفع الملف: {e}")
         return None
 
-def render_pdf(pdf_url):
+def render_pdf(pdf_path):
     try:
-        pdf_display = f'<iframe src="{pdf_url}" width="100%" height="600" type="application/pdf" style="border-radius:10px;"></iframe>'
+        if not os.path.exists(pdf_path):
+            st.error("❌ الملف ما كاينش")
+            return
+        with open(pdf_path, "rb") as f:
+            base64_pdf = base64.b64encode(f.read()).decode('utf-8')
+        pdf_display = f'<iframe src="data:application/pdf;base64,{base64_pdf}" width="100%" height="600" type="application/pdf" style="border-radius:10px;"></iframe>'
         st.markdown(pdf_display, unsafe_allow_html=True)
     except Exception as e:
         st.error(f"تعذر عرض PDF: {e}")
@@ -240,7 +292,7 @@ TRANSLATIONS = {
     "ar": {
         "app_name": "منصة المراجعة الشاملة",
         "dashboard": "🏠 الرئيسية", "lessons": "📚 الدروس", "quizzes": "📝 الاختبارات",
-        "my_files": "📁 ملفاتي", "my_questions": "❓ أسئلتي",
+        "my_files": "📁 ملفاتي", "developer": "⚙️ لوحة المطور",
         "welcome": "مرحباً", "subtitle": "منصة 3AC RevisioMaroc لمراجعة شاملة لجميع المواد الدراسية",
         "stats": "📊 إحصائياتك", "points": "النقاط", "level": "المستوى",
         "subjects_count": "المواد", "progress": "التقدم",
@@ -267,6 +319,7 @@ TRANSLATIONS = {
         "no_questions": "⚠️ لا توجد أسئلة متاحة", "back": "🔙 رجوع",
         "quiz_of": "اختبار:", "no_lessons_quiz": "⚠️ لا توجد دروس متاحة",
         "student_login": "🎓 دخول التلميذ",
+        "developer_login": "⚙️ دخول المطور",
         "register": "📝 إنشاء حساب",
         "guest": "👤 الدخول كزائر",
         "username": "اسم المستخدم",
@@ -277,38 +330,43 @@ TRANSLATIONS = {
         "wrong_creds": "❌ اسم المستخدم أو كلمة المرور خاطئة",
         "guest_note": "💡 كزائر: يمكنك تصفح الدروس والاختبارات، لكن لن تُحفظ نتائجك.",
         "logged_as": "مسجل الدخول كـ", "role_student": "تلميذ",
-        "role_guest": "زائر",
+        "role_developer": "مطور", "role_guest": "زائر",
         "student_login_title": "🎓 دخول التلميذ",
         "student_login_subtitle": "أدخل معلوماتك للوصول إلى الدروس والاختبارات",
+        "developer_login_title": "⚙️ دخول المطور",
+        "developer_login_subtitle": "هذه الصفحة مخصصة للمطور فقط",
         "register_title": "📝 إنشاء حساب جديد",
         "register_subtitle": "أنشئ حسابك للاستفادة من كل الميزات",
         "back_to_login": "🔙 رجوع",
         "register_success": "✅ تم إنشاء الحساب بنجاح! يمكنك الآن تسجيل الدخول",
         "name_required": "⚠️ يرجى ملء جميع الحقول",
         "password_mismatch": "❌ كلمتا المرور غير متطابقتين",
+        "developer_panel": "لوحة تحكم المطور",
+        "add_lesson": "➕ إضافة درس جديد", "add_question": "➕ إضافة سؤال جديد",
+        "manage_lessons": "📋 إدارة الدروس", "manage_questions": "❓ إدارة الأسئلة",
         "lesson_title": "عنوان الدرس", "lesson_content": "محتوى الدرس (نصي)",
         "lesson_subject": "المادة", "lesson_language": "اللغة",
         "lesson_image": "📷 رفع صورة (اختياري)",
         "lesson_pdf": "📄 رفع ملف PDF (اختياري)",
         "save_lesson": "💾 حفظ الدرس", "lesson_saved": "✅ تم حفظ الدرس بنجاح",
+        "question_text": "نص السؤال", "option_a": "الخيار A",
+        "option_b": "الخيار B", "option_c": "الخيار C", "option_d": "الخيار D",
+        "correct_answer": "الإجابة الصحيحة", "explanation_text": "التفسير (اختياري)",
+        "save_question": "💾 حفظ السؤال", "question_saved": "✅ تم حفظ السؤال بنجاح",
+        "select_lesson_for_question": "اختر الدرس المرتبط بالسؤال",
         "deleted": "✅ تم الحذف",
+        "no_custom_lessons": "لا توجد دروس بعد — ابدأ بإضافة درس",
+        "no_custom_questions": "لا توجد أسئلة بعد",
         "lesson_content_optional": "(اتركه فارغاً إذا كنت ستستعمل صورة أو PDF فقط)",
         "lesson_content_label": "محتوى نصي (اختياري)",
-        "my_files_title": "📁 ملفاتي — رفع الدروس الخاصة",
-        "my_files_subtitle": "ارفع صور و PDF لمراجعتك الشخصية — خاصة بك فقط",
-        "upload_new_file": "➕ رفع ملف جديد",
-        "my_uploads": "📂 الملفات المرفوعة",
-        "no_uploads": "لا توجد ملفات مرفوعة بعد",
-        "upload_success": "✅ تم رفع الملف بنجاح",
-        "file_private_note": "🔒 ملفاتك خاصة — فقط أنت من يراها",
-        "student_can_upload": "📤 يمكنك رفع ملفات PDF وصور لدروسك",
+        "dev_only_note": "🔒 هذه اللوحة متاحة فقط للمطور Soufiane Ouhazza",
         "owner_public": "📚 دروس المنصة",
         "owner_mine": "📁 دروسي",
     },
     "fr": {
         "app_name": "Plateforme de révision",
         "dashboard": "🏠 Accueil", "lessons": "📚 Leçons", "quizzes": "📝 Quiz",
-        "my_files": "📁 Mes fichiers", "my_questions": "❓ Mes questions",
+        "my_files": "📁 Mes fichiers", "developer": "⚙️ Panneau Dev",
         "welcome": "Bienvenue", "subtitle": "3AC RevisioMaroc - Révisez toutes les matières",
         "stats": "📊 Statistiques", "points": "Points", "level": "Niveau",
         "subjects_count": "Matières", "progress": "Progrès",
@@ -335,6 +393,7 @@ TRANSLATIONS = {
         "no_questions": "⚠️ Aucune question", "back": "🔙 Retour",
         "quiz_of": "Quiz :", "no_lessons_quiz": "⚠️ Aucune leçon",
         "student_login": "🎓 Connexion Élève",
+        "developer_login": "⚙️ Connexion Dev",
         "register": "📝 Inscription",
         "guest": "👤 Invité",
         "username": "Nom d'utilisateur",
@@ -345,38 +404,43 @@ TRANSLATIONS = {
         "wrong_creds": "❌ Identifiants incorrects",
         "guest_note": "💡 Invité : naviguez librement, résultats non sauvegardés.",
         "logged_as": "Connecté en tant que", "role_student": "Élève",
-        "role_guest": "Invité",
+        "role_developer": "Développeur", "role_guest": "Invité",
         "student_login_title": "🎓 Connexion Élève",
         "student_login_subtitle": "Entrez vos informations",
+        "developer_login_title": "⚙️ Connexion Développeur",
+        "developer_login_subtitle": "Cette page est réservée au développeur",
         "register_title": "📝 Créer un compte",
         "register_subtitle": "Créez votre compte",
         "back_to_login": "🔙 Retour",
         "register_success": "✅ Compte créé ! Connectez-vous",
         "name_required": "⚠️ Remplissez tous les champs",
         "password_mismatch": "❌ Mots de passe différents",
+        "developer_panel": "Panneau développeur",
+        "add_lesson": "➕ Ajouter leçon", "add_question": "➕ Ajouter question",
+        "manage_lessons": "📋 Gérer leçons", "manage_questions": "❓ Gérer questions",
         "lesson_title": "Titre", "lesson_content": "Contenu (texte)",
         "lesson_subject": "Matière", "lesson_language": "Langue",
         "lesson_image": "📷 Image (optionnel)",
         "lesson_pdf": "📄 PDF (optionnel)",
         "save_lesson": "💾 Sauvegarder", "lesson_saved": "✅ Leçon sauvegardée",
+        "question_text": "Question", "option_a": "Option A",
+        "option_b": "Option B", "option_c": "Option C", "option_d": "Option D",
+        "correct_answer": "Réponse correcte", "explanation_text": "Explication (optionnel)",
+        "save_question": "💾 Sauvegarder", "question_saved": "✅ Question sauvegardée",
+        "select_lesson_for_question": "Choisir la leçon",
         "deleted": "✅ Supprimé",
+        "no_custom_lessons": "Aucune leçon — commencez par en ajouter",
+        "no_custom_questions": "Aucune question",
         "lesson_content_optional": "(Laissez vide si vous utilisez une image/PDF)",
         "lesson_content_label": "Contenu texte (optionnel)",
-        "my_files_title": "📁 Mes fichiers — Leçons personnelles",
-        "my_files_subtitle": "Uploadez des images et PDF pour votre révision personnelle",
-        "upload_new_file": "➕ Uploader un fichier",
-        "my_uploads": "📂 Fichiers uploadés",
-        "no_uploads": "Aucun fichier uploadé",
-        "upload_success": "✅ Fichier uploadé",
-        "file_private_note": "🔒 Vos fichiers sont privés",
-        "student_can_upload": "📤 Vous pouvez uploader des PDF et images",
+        "dev_only_note": "🔒 Panneau réservé au développeur Soufiane Ouhazza",
         "owner_public": "📚 Leçons de la plateforme",
         "owner_mine": "📁 Mes leçons",
     },
     "en": {
         "app_name": "Revision Platform",
         "dashboard": "🏠 Home", "lessons": "📚 Lessons", "quizzes": "📝 Quizzes",
-        "my_files": "📁 My Files", "my_questions": "❓ My Questions",
+        "my_files": "📁 My Files", "developer": "⚙️ Dev Panel",
         "welcome": "Welcome", "subtitle": "3AC RevisioMaroc - Revise all subjects",
         "stats": "📊 Your Stats", "points": "Points", "level": "Level",
         "subjects_count": "Subjects", "progress": "Progress",
@@ -403,6 +467,7 @@ TRANSLATIONS = {
         "no_questions": "⚠️ No questions", "back": "🔙 Back",
         "quiz_of": "Quiz:", "no_lessons_quiz": "⚠️ No lessons",
         "student_login": "🎓 Student Login",
+        "developer_login": "⚙️ Developer Login",
         "register": "📝 Register",
         "guest": "👤 Guest",
         "username": "Username",
@@ -413,38 +478,43 @@ TRANSLATIONS = {
         "wrong_creds": "❌ Wrong credentials",
         "guest_note": "💡 Guest: browse freely, results not saved.",
         "logged_as": "Logged in as", "role_student": "Student",
-        "role_guest": "Guest",
+        "role_developer": "Developer", "role_guest": "Guest",
         "student_login_title": "🎓 Student Login",
         "student_login_subtitle": "Enter your info",
+        "developer_login_title": "⚙️ Developer Login",
+        "developer_login_subtitle": "This page is for the developer only",
         "register_title": "📝 Create Account",
         "register_subtitle": "Create your account",
         "back_to_login": "🔙 Back",
         "register_success": "✅ Account created! Login now",
         "name_required": "⚠️ Fill all fields",
         "password_mismatch": "❌ Passwords don't match",
+        "developer_panel": "Developer Panel",
+        "add_lesson": "➕ Add Lesson", "add_question": "➕ Add Question",
+        "manage_lessons": "📋 Manage Lessons", "manage_questions": "❓ Manage Questions",
         "lesson_title": "Title", "lesson_content": "Content (text)",
         "lesson_subject": "Subject", "lesson_language": "Language",
         "lesson_image": "📷 Image (optional)",
         "lesson_pdf": "📄 PDF (optional)",
         "save_lesson": "💾 Save Lesson", "lesson_saved": "✅ Lesson saved",
+        "question_text": "Question", "option_a": "Option A",
+        "option_b": "Option B", "option_c": "Option C", "option_d": "Option D",
+        "correct_answer": "Correct Answer", "explanation_text": "Explanation (optional)",
+        "save_question": "💾 Save Question", "question_saved": "✅ Question saved",
+        "select_lesson_for_question": "Select lesson",
         "deleted": "✅ Deleted",
+        "no_custom_lessons": "No lessons — start by adding",
+        "no_custom_questions": "No questions",
         "lesson_content_optional": "(Leave empty if using image/PDF only)",
         "lesson_content_label": "Text content (optional)",
-        "my_files_title": "📁 My Files — Personal Lessons",
-        "my_files_subtitle": "Upload PDF and images for your personal revision",
-        "upload_new_file": "➕ Upload New File",
-        "my_uploads": "📂 My Uploads",
-        "no_uploads": "No files uploaded yet",
-        "upload_success": "✅ File uploaded successfully",
-        "file_private_note": "🔒 Your files are private",
-        "student_can_upload": "📤 You can upload PDF and images",
+        "dev_only_note": "🔒 Developer panel - reserved to Soufiane Ouhazza",
         "owner_public": "📚 Platform Lessons",
         "owner_mine": "📁 My Lessons",
     },
     "es": {
         "app_name": "Plataforma de revisión",
         "dashboard": "🏠 Inicio", "lessons": "📚 Lecciones", "quizzes": "📝 Cuestionarios",
-        "my_files": "📁 Mis archivos", "my_questions": "❓ Mis preguntas",
+        "my_files": "📁 Mis archivos", "developer": "⚙️ Panel Dev",
         "welcome": "Bienvenido", "subtitle": "3AC RevisioMaroc - Revisa todas las materias",
         "stats": "📊 Estadísticas", "points": "Puntos", "level": "Nivel",
         "subjects_count": "Materias", "progress": "Progreso",
@@ -471,6 +541,7 @@ TRANSLATIONS = {
         "no_questions": "⚠️ No hay preguntas", "back": "🔙 Volver",
         "quiz_of": "Cuestionario:", "no_lessons_quiz": "⚠️ No hay lecciones",
         "student_login": "🎓 Estudiante",
+        "developer_login": "⚙️ Desarrollador",
         "register": "📝 Registrarse",
         "guest": "👤 Invitado",
         "username": "Usuario",
@@ -481,31 +552,36 @@ TRANSLATIONS = {
         "wrong_creds": "❌ Credenciales incorrectas",
         "guest_note": "💡 Invitado: navega libremente",
         "logged_as": "Sesión de", "role_student": "Estudiante",
-        "role_guest": "Invitado",
+        "role_developer": "Desarrollador", "role_guest": "Invitado",
         "student_login_title": "🎓 Acceso Estudiante",
         "student_login_subtitle": "Introduce tus datos",
+        "developer_login_title": "⚙️ Acceso Desarrollador",
+        "developer_login_subtitle": "Solo para el desarrollador",
         "register_title": "📝 Crear Cuenta",
         "register_subtitle": "Crea tu cuenta",
         "back_to_login": "🔙 Volver",
         "register_success": "✅ ¡Cuenta creada! Ya puedes entrar",
         "name_required": "⚠️ Rellena todos los campos",
         "password_mismatch": "❌ Las contraseñas no coinciden",
+        "developer_panel": "Panel del desarrollador",
+        "add_lesson": "➕ Añadir lección", "add_question": "➕ Añadir pregunta",
+        "manage_lessons": "📋 Gestionar lecciones", "manage_questions": "❓ Gestionar preguntas",
         "lesson_title": "Título", "lesson_content": "Contenido (texto)",
         "lesson_subject": "Materia", "lesson_language": "Idioma",
         "lesson_image": "📷 Imagen (opcional)",
         "lesson_pdf": "📄 PDF (opcional)",
         "save_lesson": "💾 Guardar", "lesson_saved": "✅ Lección guardada",
+        "question_text": "Pregunta", "option_a": "Opción A",
+        "option_b": "Opción B", "option_c": "Opción C", "option_d": "Opción D",
+        "correct_answer": "Respuesta correcta", "explanation_text": "Explicación (opcional)",
+        "save_question": "💾 Guardar", "question_saved": "✅ Pregunta guardada",
+        "select_lesson_for_question": "Elegir lección",
         "deleted": "✅ Eliminado",
+        "no_custom_lessons": "Sin lecciones — empieza añadiendo",
+        "no_custom_questions": "Sin preguntas",
         "lesson_content_optional": "(Deja vacío si usas imagen/PDF)",
         "lesson_content_label": "Contenido de texto (opcional)",
-        "my_files_title": "📁 Mis archivos — Lecciones personales",
-        "my_files_subtitle": "Sube PDF e imágenes para tu revisión personal",
-        "upload_new_file": "➕ Subir archivo",
-        "my_uploads": "📂 Mis archivos",
-        "no_uploads": "Sin archivos aún",
-        "upload_success": "✅ Archivo subido",
-        "file_private_note": "🔒 Tus archivos son privados",
-        "student_can_upload": "📤 Puedes subir PDF e imágenes",
+        "dev_only_note": "🔒 Panel exclusivo del desarrollador Soufiane Ouhazza",
         "owner_public": "📚 Lecciones de la plataforma",
         "owner_mine": "📁 Mis lecciones",
     },
@@ -519,13 +595,28 @@ LANGUAGES = {
 }
 
 # ----------------------------------------------------------------------------
-# 🎨 الثيمات
+# 🎨 الثيمات (9 ثيمات)
 # ----------------------------------------------------------------------------
 THEMES = {
     "⚽ FC Barcelona": {
         "bg": "#0A1E3F", "card": "#1A2F5C", "text": "#F0F8FF",
         "accent": "#A50044", "secondary": "#0F2A52", "border": "#004D98",
         "highlight": "#00D26A"
+    },
+    "👑 Real Madrid": {
+        "bg": "#0F1B2D", "card": "#1E2E4A", "text": "#FFFFFF",
+        "accent": "#FEBE10", "secondary": "#0A1421", "border": "#00529F",
+        "highlight": "#FEBE10"
+    },
+    "🦅 الأهلي المصري": {
+        "bg": "#1A0A0A", "card": "#2D1515", "text": "#FFF5F5",
+        "accent": "#E30613", "secondary": "#120505", "border": "#8B0000",
+        "highlight": "#FFD700"
+    },
+    "🌙 Moonlight": {
+        "bg": "#0A0E1A", "card": "#1A1F35", "text": "#E8ECFF",
+        "accent": "#7B9FFF", "secondary": "#050810", "border": "#3D4A7A",
+        "highlight": "#FFE57F"
     },
     "🌙 Midnight Purple": {
         "bg": "#0D0B1F", "card": "#1A1735", "text": "#EDE9FE",
@@ -536,6 +627,11 @@ THEMES = {
         "bg": "#0A1929", "card": "#132F4C", "text": "#E3F2FD",
         "accent": "#00B8D4", "secondary": "#0F2537", "border": "#1E4976",
         "highlight": "#4ADE80"
+    },
+    "📚 Study Mode": {
+        "bg": "#1A1410", "card": "#2D2418", "text": "#FFF8E7",
+        "accent": "#D4A574", "secondary": "#0F0B07", "border": "#5C4A2E",
+        "highlight": "#FFD700"
     },
     "🌅 Golden Sunset": {
         "bg": "#1F1410", "card": "#331F17", "text": "#FFF3E0",
@@ -661,15 +757,6 @@ def apply_theme():
             color: {theme['text']}; opacity: 0.85; font-size: 0.9em;
         }}
         .footer b {{ color: {theme['accent']}; font-size: 1.05em; }}
-        .stTabs [data-baseweb="tab-list"] {{ gap: 8px; }}
-        .stTabs [data-baseweb="tab"] {{
-            background-color: {theme['card']}; border-radius: 8px;
-            padding: 8px 16px; border: 1px solid {theme['border']};
-        }}
-        .stTabs [aria-selected="true"] {{
-            background: linear-gradient(135deg, {theme['accent']}, {theme['border']}) !important;
-            color: white !important;
-        }}
     </style>
     """, unsafe_allow_html=True)
 
@@ -707,14 +794,14 @@ def render_auth_home():
     </div>
     """, unsafe_allow_html=True)
 
-    col1, col2 = st.columns(2)
+    col1, col2, col3 = st.columns(3)
 
     with col1:
         st.markdown(f"""
         <div class="custom-card" style="text-align:center; min-height: 200px; border-top: 5px solid #3498DB;">
             <div style="font-size: 4em;">🎓</div>
             <h2 style="margin: 15px 0;">{T('student_login')}</h2>
-            <p style="opacity: 0.8;">دخول للتلاميذ المسجلين</p>
+            <p style="opacity: 0.8;">للتلاميذ للوصول إلى الدروس والاختبارات</p>
         </div>
         """, unsafe_allow_html=True)
         if st.button(f"🎓 {T('student_login')}", use_container_width=True, key="go_student"):
@@ -722,6 +809,18 @@ def render_auth_home():
             st.rerun()
 
     with col2:
+        st.markdown(f"""
+        <div class="custom-card" style="text-align:center; min-height: 200px; border-top: 5px solid #E74C3C;">
+            <div style="font-size: 4em;">⚙️</div>
+            <h2 style="margin: 15px 0;">{T('developer_login')}</h2>
+            <p style="opacity: 0.8;">للمطور Soufiane Ouhazza فقط</p>
+        </div>
+        """, unsafe_allow_html=True)
+        if st.button(f"⚙️ {T('developer_login')}", use_container_width=True, key="go_dev"):
+            st.session_state.auth_page = "developer_login"
+            st.rerun()
+
+    with col3:
         st.markdown(f"""
         <div class="custom-card" style="text-align:center; min-height: 200px; border-top: 5px solid #27AE60;">
             <div style="font-size: 4em;">📝</div>
@@ -777,7 +876,7 @@ def render_student_login():
                     st.error(T('name_required'))
                 else:
                     ok, user = authenticate(username, password)
-                    if ok:
+                    if ok and user["role"] == "student":
                         st.session_state.authenticated = True
                         st.session_state.username = username
                         st.session_state.user_role = "student"
@@ -785,6 +884,8 @@ def render_student_login():
                         st.session_state.student_name = user.get("full_name", username)
                         st.session_state.auth_page = "home"
                         st.rerun()
+                    elif ok and user["role"] == "developer":
+                        st.error("❌ هذا حساب مطور — استخدم صفحة دخول المطور")
                     else:
                         st.error(T('wrong_creds'))
 
@@ -798,6 +899,58 @@ def render_student_login():
             if st.button(T('back_to_login'), use_container_width=True, key="sl_back"):
                 st.session_state.auth_page = "home"
                 st.rerun()
+
+    st.markdown(f"""
+    <div class="footer">
+        © 2026 <b>Soufiane Ouhazza</b> — All Rights Reserved
+    </div>
+    """, unsafe_allow_html=True)
+
+
+def render_developer_login():
+    apply_theme()
+
+    st.markdown(f"""
+    <div class="main-header" style="background: linear-gradient(135deg, #A50044, #004D98);">
+        <h1>{T('developer_login_title')}</h1>
+        <p>{T('developer_login_subtitle')}</p>
+    </div>
+    """, unsafe_allow_html=True)
+
+    st.markdown(f"""
+    <div class="custom-card" style="text-align:center; border-left: 5px solid #00D26A;">
+        <p style="margin:0;">🔒 {T('dev_only_note')}</p>
+        <p style="margin:5px 0; opacity: 0.7; font-size: 0.85em;">المطور: Soufiane Ouhazza</p>
+    </div>
+    """, unsafe_allow_html=True)
+
+    col1, col2, col3 = st.columns([1, 2, 1])
+    with col2:
+        with st.form("dev_login_form"):
+            username = st.text_input(f"👤 {T('username')}", key="dl_user")
+            password = st.text_input(f"🔒 {T('password')}", type="password", key="dl_pass")
+
+            submitted = st.form_submit_button(f"⚙️ {T('login_btn')}", use_container_width=True)
+            if submitted:
+                if not username or not password:
+                    st.error(T('name_required'))
+                else:
+                    ok, user = authenticate(username, password)
+                    if ok and user["role"] == "developer":
+                        st.session_state.authenticated = True
+                        st.session_state.username = username
+                        st.session_state.user_role = "developer"
+                        st.session_state.full_name = user.get("full_name", username)
+                        st.session_state.student_name = user.get("full_name", username)
+                        st.session_state.auth_page = "home"
+                        st.rerun()
+                    else:
+                        st.error(T('wrong_creds'))
+
+        st.markdown("---")
+        if st.button(T('back_to_login'), use_container_width=True, key="dl_back"):
+            st.session_state.auth_page = "home"
+            st.rerun()
 
     st.markdown(f"""
     <div class="footer">
@@ -855,6 +1008,8 @@ def render_auth_page():
         render_auth_home()
     elif auth_page == "student_login":
         render_student_login()
+    elif auth_page == "developer_login":
+        render_developer_login()
     elif auth_page == "register":
         render_register()
     else:
@@ -916,24 +1071,15 @@ def render_lessons():
 
     st.markdown("---")
 
-    public_lessons = load_lessons(selected, st.session_state.language, owner="public")
-    my_lessons = []
-    if st.session_state.user_role == "student":
-        my_lessons = load_lessons(selected, st.session_state.language, owner=st.session_state.username)
+    lessons = load_lessons(selected, st.session_state.language, owner="public")
 
-    if not public_lessons and not my_lessons:
+    if not lessons:
         st.warning(T('no_lessons'))
         return
 
-    if public_lessons:
-        st.markdown(f"### {T('owner_public')}")
-        for lesson in public_lessons:
-            _render_lesson_card(lesson)
-
-    if my_lessons:
-        st.markdown(f"### {T('owner_mine')}")
-        for lesson in my_lessons:
-            _render_lesson_card(lesson, is_personal=True)
+    st.markdown(f"### {T('owner_public')}")
+    for lesson in lessons:
+        _render_lesson_card(lesson)
 
 
 def _render_lesson_card(lesson, is_personal=False):
@@ -941,7 +1087,7 @@ def _render_lesson_card(lesson, is_personal=False):
         if lesson.get('content'):
             st.markdown(lesson['content'])
 
-        if lesson.get('image_url'):
+        if lesson.get('image_url') and os.path.exists(lesson['image_url']):
             st.image(lesson['image_url'], use_container_width=True)
 
         if lesson.get('pdf_url'):
@@ -958,210 +1104,13 @@ def _render_lesson_card(lesson, is_personal=False):
             st.rerun()
 
 # ============================================================================
-# 📁 ملفاتي (دروس التلميذ)
-# ============================================================================
-def render_my_files():
-    st.markdown(f"## {T('my_files_title')}")
-    st.caption(T('my_files_subtitle'))
-
-    st.info(f"🔒 {T('file_private_note')}")
-
-    st.markdown(f"### {T('upload_new_file')}")
-
-    with st.form("upload_student_file", clear_on_submit=True):
-        c1, c2 = st.columns(2)
-        with c1:
-            subject = st.selectbox(
-                T('lesson_subject'),
-                list(SUBJECTS.keys()),
-                format_func=lambda k: f"{SUBJECTS[k]['icon']} {get_subject_name(k)}",
-                key="stu_subject"
-            )
-        with c2:
-            language = st.selectbox(
-                T('lesson_language'),
-                list(LANGUAGES.keys()),
-                format_func=lambda k: LANGUAGES[k],
-                key="stu_lang"
-            )
-
-        title = st.text_input(T('lesson_title'), key="stu_title")
-        content = st.text_area(
-            f"{T('lesson_content_label')} {T('lesson_content_optional')}",
-            height=100,
-            key="stu_content"
-        )
-
-        c1, c2 = st.columns(2)
-        with c1:
-            image_file = st.file_uploader(
-                T('lesson_image'),
-                type=["png", "jpg", "jpeg", "webp"],
-                key="stu_image"
-            )
-        with c2:
-            pdf_file = st.file_uploader(
-                T('lesson_pdf'),
-                type=["pdf"],
-                key="stu_pdf"
-            )
-
-        if st.form_submit_button(T('save_lesson'), use_container_width=True):
-            if title and (content or image_file or pdf_file):
-                image_url = upload_file(image_file, f"students/{st.session_state.username}/images") if image_file else None
-                pdf_url = upload_file(pdf_file, f"students/{st.session_state.username}/pdfs") if pdf_file else None
-
-                ok, msg = add_lesson(
-                    subject, language, title,
-                    content or "",
-                    image_url, pdf_url,
-                    owner=st.session_state.username
-                )
-                if ok:
-                    st.success(T('upload_success'))
-                    st.rerun()
-                else:
-                    st.error(msg)
-            else:
-                st.error("⚠️ املأ العنوان + (نص أو صورة أو PDF)")
-
-    st.markdown("---")
-    st.markdown(f"### {T('my_uploads')}")
-
-    all_my_lessons = []
-    for subj_key in SUBJECTS.keys():
-        for lang_key in LANGUAGES.keys():
-            found = load_lessons(subj_key, lang_key, owner=st.session_state.username)
-            all_my_lessons.extend(found)
-
-    if not all_my_lessons:
-        st.info(T('no_uploads'))
-    else:
-        for lesson in all_my_lessons:
-            c1, c2 = st.columns([5, 1])
-            with c1:
-                icons = ""
-                if lesson.get('content'): icons += "📝"
-                if lesson.get('image_url'): icons += "📷"
-                if lesson.get('pdf_url'): icons += "📄"
-                st.markdown(f"{icons} **{lesson['title']}** — *{get_subject_name(lesson['subject'])} / {LANGUAGES.get(lesson['language'], lesson['language'])}*")
-            with c2:
-                if st.button("🗑️", key=f"del_my_{lesson['id']}"):
-                    if delete_lesson(lesson['id'], owner_filter=st.session_state.username):
-                        st.success(T('deleted'))
-                        st.rerun()
-
-            with st.expander(f"عرض {lesson['title']}", expanded=False):
-                if lesson.get('content'):
-                    st.markdown(lesson['content'])
-                if lesson.get('image_url'):
-                    st.image(lesson['image_url'], use_container_width=True)
-                if lesson.get('pdf_url'):
-                    render_pdf(lesson['pdf_url'])
-
-# ============================================================================
-# ❓ أسئلتي (أسئلة التلميذ)
-# ============================================================================
-def render_my_questions():
-    st.markdown(f"## ❓ {T('my_questions')}")
-
-    # جلب دروس التلميذ
-    my_lessons = []
-    for subj_key in SUBJECTS.keys():
-        for lang_key in LANGUAGES.keys():
-            found = load_lessons(subj_key, lang_key, owner=st.session_state.username)
-            my_lessons.extend(found)
-
-    if not my_lessons:
-        st.warning("⚠️ ما عندكش دروس — سير لـ 📁 ملفاتي وزيد درس أولاً")
-        return
-
-    # اختيار الدرس
-    lesson_options = {str(l['id']): f"📖 {l['title']} ({get_subject_name(l['subject'])})" for l in my_lessons}
-    selected_lesson_id = st.selectbox(
-        "اختر الدرس",
-        list(lesson_options.keys()),
-        format_func=lambda i: lesson_options[i],
-        key="my_q_lesson"
-    )
-
-    st.markdown("---")
-
-    # عرض أسئلة الدرس
-    questions = load_questions(selected_lesson_id)
-
-    if questions:
-        st.markdown(f"### 📋 الأسئلة الحالية ({len(questions)})")
-        for q in questions:
-            with st.expander(f"❓ {q['question']}"):
-                for j, opt in enumerate(q['options']):
-                    marker = "🟢" if j == q['correct'] else "⚪"
-                    st.markdown(f"{marker} **{chr(65+j)}.** {opt}")
-                if q.get('explanation'):
-                    st.info(f"💡 **التفسير:** {q['explanation']}")
-                if st.button("🗑️ حذف", key=f"del_my_q_{q['id']}"):
-                    if delete_question(q['id']):
-                        st.success("✅ تم الحذف")
-                        st.rerun()
-    else:
-        st.info("📝 ما كاينش أسئلة — زيد سؤال جديد تحت")
-
-    st.markdown("---")
-
-    # إضافة سؤال جديد
-    st.markdown("### ➕ إضافة سؤال جديد")
-
-    with st.form("add_my_question", clear_on_submit=True):
-        q_text = st.text_area("نص السؤال", key="my_q_text")
-        c1, c2 = st.columns(2)
-        with c1:
-            opt_a = st.text_input("الخيار A", key="my_q_a")
-            opt_b = st.text_input("الخيار B", key="my_q_b")
-        with c2:
-            opt_c = st.text_input("الخيار C", key="my_q_c")
-            opt_d = st.text_input("الخيار D", key="my_q_d")
-
-        correct = st.radio(
-            "الإجابة الصحيحة",
-            options=[0, 1, 2, 3],
-            format_func=lambda i: f"{chr(65+i)}",
-            horizontal=True,
-            key="my_q_correct"
-        )
-        explanation = st.text_input("التفسير (اختياري)", key="my_q_expl")
-
-        if st.form_submit_button("💾 حفظ السؤال", use_container_width=True):
-            if q_text and opt_a and opt_b and opt_c and opt_d:
-                correct_letter = chr(65 + correct)
-                ok, msg = add_question(
-                    selected_lesson_id, q_text,
-                    opt_a, opt_b, opt_c, opt_d,
-                    correct_letter, explanation
-                )
-                if ok:
-                    st.success("✅ تم حفظ السؤال")
-                    st.rerun()
-                else:
-                    st.error(msg)
-            else:
-                st.error("⚠️ املأ جميع الحقول")
-
-# ============================================================================
 # 📝 الاختبارات
 # ============================================================================
 def render_quiz():
     st.markdown(f"## 📝 {T('smart_quizzes')}")
 
     if not st.session_state.selected_lesson:
-        all_lessons = []
-        for subj_key in SUBJECTS.keys():
-            for lang_key in LANGUAGES.keys():
-                all_lessons.extend(load_lessons(subj_key, lang_key, owner="public"))
-
-        if st.session_state.user_role == "student":
-            for subj_key in SUBJECTS.keys():
-                for lang_key in LANGUAGES.keys():
-                    all_lessons.extend(load_lessons(subj_key, lang_key, owner=st.session_state.username))
+        all_lessons = load_lessons(owner="public")
 
         if not all_lessons:
             st.warning(T('no_lessons_quiz'))
@@ -1263,6 +1212,143 @@ def render_quiz():
             st.rerun()
 
 # ============================================================================
+# ⚙️ لوحة المطور
+# ============================================================================
+def render_developer_panel():
+    if st.session_state.user_role != "developer":
+        st.error("🔒 هذه اللوحة محمية — للمطور فقط")
+        st.stop()
+
+    st.markdown(f"## ⚙️ {T('developer_panel')}")
+    st.caption(f"👨‍💻 {T('dev_only_note')}")
+
+    tab1, tab2 = st.tabs([T('manage_lessons'), T('manage_questions')])
+
+    with tab1:
+        st.markdown(f"### {T('add_lesson')}")
+
+        with st.form("add_lesson_form", clear_on_submit=True):
+            c1, c2 = st.columns(2)
+            with c1:
+                subject = st.selectbox(T('lesson_subject'), list(SUBJECTS.keys()),
+                                       format_func=lambda k: f"{SUBJECTS[k]['icon']} {get_subject_name(k)}")
+            with c2:
+                language = st.selectbox(T('lesson_language'), list(LANGUAGES.keys()),
+                                        format_func=lambda k: LANGUAGES[k])
+
+            title = st.text_input(T('lesson_title'))
+            content = st.text_area(f"{T('lesson_content_label')} {T('lesson_content_optional')}", height=150)
+
+            c1, c2 = st.columns(2)
+            with c1:
+                image_file = st.file_uploader(T('lesson_image'), type=["png", "jpg", "jpeg", "webp"])
+            with c2:
+                pdf_file = st.file_uploader(T('lesson_pdf'), type=["pdf"])
+
+            if st.form_submit_button(T('save_lesson'), use_container_width=True):
+                if title and (content or image_file or pdf_file):
+                    image_url = upload_file(image_file, "developer/images") if image_file else None
+                    pdf_url = upload_file(pdf_file, "developer/pdfs") if pdf_file else None
+
+                    ok, msg = add_lesson(subject, language, title, content or "", image_url, pdf_url, owner="public")
+                    if ok:
+                        st.success(T('lesson_saved'))
+                        st.rerun()
+                    else:
+                        st.error(msg)
+                else:
+                    st.error("⚠️ املأ العنوان + (نص أو صورة أو PDF)")
+
+        st.markdown("---")
+        st.markdown(f"### {T('manage_lessons')}")
+
+        found_any = False
+        for subj_key in SUBJECTS.keys():
+            for lang_key in LANGUAGES.keys():
+                lessons = load_lessons(subj_key, lang_key, owner="public")
+                if lessons:
+                    found_any = True
+                    st.markdown(f"**{get_subject_name(subj_key)} / {LANGUAGES[lang_key]}**")
+                    for lesson in lessons:
+                        c1, c2 = st.columns([5, 1])
+                        with c1:
+                            icons = ""
+                            if lesson.get('content'): icons += "📝"
+                            if lesson.get('image_url'): icons += "📷"
+                            if lesson.get('pdf_url'): icons += "📄"
+                            st.markdown(f"{icons} **{lesson['title']}**")
+                        with c2:
+                            if st.button("🗑️", key=f"del_lesson_{lesson['id']}"):
+                                if delete_lesson(lesson['id'], owner_filter="public"):
+                                    st.success(T('deleted'))
+                                    st.rerun()
+                    st.markdown("---")
+
+        if not found_any:
+            st.info(T('no_custom_lessons'))
+
+    with tab2:
+        st.markdown(f"### {T('add_question')}")
+
+        all_lessons = load_lessons(owner="public")
+        lesson_options = {str(l['id']): f"[{get_subject_name(l['subject'])} / {LANGUAGES[l['language']]}] {l['title']}" for l in all_lessons}
+
+        if not lesson_options:
+            st.warning("⚠️ أضف درساً أولاً")
+        else:
+            with st.form("add_question_form", clear_on_submit=True):
+                lesson_id = st.selectbox(T('select_lesson_for_question'),
+                                          list(lesson_options.keys()),
+                                          format_func=lambda i: lesson_options[i])
+                q_text = st.text_area(T('question_text'))
+                c1, c2 = st.columns(2)
+                with c1:
+                    opt_a = st.text_input(T('option_a'))
+                    opt_b = st.text_input(T('option_b'))
+                with c2:
+                    opt_c = st.text_input(T('option_c'))
+                    opt_d = st.text_input(T('option_d'))
+
+                correct = st.radio(T('correct_answer'), options=[0, 1, 2, 3],
+                                    format_func=lambda i: f"{chr(65+i)}", horizontal=True)
+                explanation = st.text_input(T('explanation_text'))
+
+                if st.form_submit_button(T('save_question'), use_container_width=True):
+                    if q_text and opt_a and opt_b and opt_c and opt_d:
+                        correct_letter = chr(65 + correct)
+                        ok, msg = add_question(lesson_id, q_text, opt_a, opt_b, opt_c, opt_d, correct_letter, explanation)
+                        if ok:
+                            st.success(T('question_saved'))
+                            st.rerun()
+                        else:
+                            st.error(msg)
+                    else:
+                        st.error("⚠️ املأ جميع الحقول")
+
+        st.markdown("---")
+        st.markdown(f"### {T('manage_questions')}")
+
+        found_any_q = False
+        for l in all_lessons:
+            qs = load_questions(l['id'])
+            if qs:
+                found_any_q = True
+                st.markdown(f"**📖 {lesson_options.get(str(l['id']), l['title'])}**")
+                for q in qs:
+                    c1, c2 = st.columns([5, 1])
+                    with c1:
+                        st.markdown(f"❓ {q['question']} — ✅ **{chr(65+q['correct'])}**")
+                    with c2:
+                        if st.button("🗑️", key=f"del_q_{q['id']}"):
+                            if delete_question(q['id']):
+                                st.success(T('deleted'))
+                                st.rerun()
+                st.markdown("---")
+
+        if not found_any_q:
+            st.info(T('no_custom_questions'))
+
+# ============================================================================
 # 🚀 التوجيه الرئيسي
 # ============================================================================
 if not st.session_state.authenticated:
@@ -1282,8 +1368,9 @@ with st.sidebar:
     """, unsafe_allow_html=True)
 
     role = st.session_state.user_role
-    role_label = {"student": T('role_student'), "guest": T('role_guest')}.get(role, role)
-    badge_color = {"student": "#3498DB", "guest": "#95A5A6"}.get(role, "#4A90E2")
+    role_label = {"student": T('role_student'), "developer": T('role_developer'),
+                  "guest": T('role_guest')}.get(role, role)
+    badge_color = {"student": "#3498DB", "developer": theme_colors['accent'], "guest": "#95A5A6"}.get(role, "#4A90E2")
 
     st.markdown(f"""
     <div class="custom-card" style="text-align:center; padding: 12px;">
@@ -1330,12 +1417,9 @@ with st.sidebar:
         st.session_state.selected_lesson = None
         st.rerun()
 
-    if st.session_state.user_role == "student":
-        if st.button(T('my_files'), use_container_width=True):
-            st.session_state.page = "my_files"
-            st.rerun()
-        if st.button(T('my_questions'), use_container_width=True):
-            st.session_state.page = "my_questions"
+    if st.session_state.user_role == "developer":
+        if st.button(T('developer'), use_container_width=True):
+            st.session_state.page = "developer"
             st.rerun()
 
     st.markdown("---")
@@ -1362,13 +1446,8 @@ with st.sidebar:
 
 page = st.session_state.page
 
-if page == "my_files" and st.session_state.user_role != "student":
-    st.error("🔒 هذه الصفحة للتلاميذ فقط")
-    st.session_state.page = "dashboard"
-    st.rerun()
-
-if page == "my_questions" and st.session_state.user_role != "student":
-    st.error("🔒 هذه الصفحة للتلاميذ فقط")
+if page == "developer" and st.session_state.user_role != "developer":
+    st.error("🔒 هذه الصفحة محمية — للمطور فقط")
     st.session_state.page = "dashboard"
     st.rerun()
 
@@ -1378,10 +1457,8 @@ elif page == "lessons":
     render_lessons()
 elif page == "quiz":
     render_quiz()
-elif page == "my_files" and st.session_state.user_role == "student":
-    render_my_files()
-elif page == "my_questions" and st.session_state.user_role == "student":
-    render_my_questions()
+elif page == "developer" and st.session_state.user_role == "developer":
+    render_developer_panel()
 else:
     render_dashboard()
 
