@@ -1,5 +1,5 @@
 # ============================================================================
-# 3AC RevisioMaroc - نسخة SQLite
+# 3AC RevisioMaroc - النسخة المطورة الكاملة
 # © 2026 Soufiane Ouhazza - All Rights Reserved
 # ============================================================================
 
@@ -8,12 +8,11 @@ import hashlib
 import sqlite3
 import os
 import base64
-from datetime import datetime
+import random
+import time
+from datetime import datetime, timedelta
 from pathlib import Path
 
-# ----------------------------------------------------------------------------
-# إعدادات الصفحة
-# ----------------------------------------------------------------------------
 st.set_page_config(
     page_title="3AC RevisioMaroc",
     page_icon="🎓",
@@ -21,9 +20,6 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# ----------------------------------------------------------------------------
-# إعداد قاعدة البيانات SQLite
-# ----------------------------------------------------------------------------
 DB_PATH = "revisiomaroc.db"
 UPLOAD_DIR = Path("uploads")
 UPLOAD_DIR.mkdir(exist_ok=True)
@@ -37,7 +33,6 @@ def init_db():
     conn = get_db()
     c = conn.cursor()
 
-    # جدول المستخدمين
     c.execute("""
         CREATE TABLE IF NOT EXISTS users (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -49,7 +44,6 @@ def init_db():
         )
     """)
 
-    # جدول الدروس
     c.execute("""
         CREATE TABLE IF NOT EXISTS lessons (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -64,7 +58,6 @@ def init_db():
         )
     """)
 
-    # جدول الأسئلة
     c.execute("""
         CREATE TABLE IF NOT EXISTS questions (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -80,7 +73,45 @@ def init_db():
         )
     """)
 
-    # إنشاء حساب المطور إذا ما كانش
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS quiz_history (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            lesson_id TEXT NOT NULL,
+            lesson_title TEXT,
+            subject TEXT,
+            score INTEGER,
+            total INTEGER,
+            percent REAL,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS favorites (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            lesson_id INTEGER NOT NULL,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(username, lesson_id)
+        )
+    """)
+
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS user_stats (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT UNIQUE NOT NULL,
+            total_points INTEGER DEFAULT 0,
+            level INTEGER DEFAULT 1,
+            quizzes_taken INTEGER DEFAULT 0,
+            perfect_scores INTEGER DEFAULT 0,
+            unique_subjects TEXT DEFAULT '',
+            badges TEXT DEFAULT '',
+            last_daily TEXT,
+            streak INTEGER DEFAULT 0
+        )
+    """)
+
     c.execute("SELECT * FROM users WHERE username = ?", ("soufianeDEV",))
     if not c.fetchone():
         dev_hash = hashlib.sha256("soufiane2030".encode()).hexdigest()
@@ -103,7 +134,6 @@ def hash_password(password):
 def register_user(username, password, full_name=""):
     if len(password) < 4:
         return False, "❌ كلمة المرور قصيرة جداً (4 أحرف على الأقل)"
-
     try:
         conn = get_db()
         c = conn.cursor()
@@ -116,6 +146,7 @@ def register_user(username, password, full_name=""):
             "INSERT INTO users (username, password_hash, role, full_name) VALUES (?, ?, ?, ?)",
             (username, hash_password(password), "student", full_name or username)
         )
+        c.execute("INSERT OR IGNORE INTO user_stats (username) VALUES (?)", (username,))
         conn.commit()
         conn.close()
         return True, "✅ تم إنشاء الحساب بنجاح"
@@ -129,10 +160,8 @@ def authenticate(username, password):
         c.execute("SELECT * FROM users WHERE username = ?", (username,))
         row = c.fetchone()
         conn.close()
-
         if not row:
             return False, None
-
         if row["password_hash"] == hash_password(password):
             return True, {
                 "role": row["role"],
@@ -144,9 +173,276 @@ def authenticate(username, password):
         return False, None
 
 # ----------------------------------------------------------------------------
-# إدارة الدروس
+# إحصائيات المستخدم
 # ----------------------------------------------------------------------------
-def load_lessons(subject=None, language=None, owner=None):
+def get_user_stats(username):
+    try:
+        conn = get_db()
+        c = conn.cursor()
+        c.execute("SELECT * FROM user_stats WHERE username = ?", (username,))
+        row = c.fetchone()
+        if not row:
+            c.execute("INSERT INTO user_stats (username) VALUES (?)", (username,))
+            conn.commit()
+            c.execute("SELECT * FROM user_stats WHERE username = ?", (username,))
+            row = c.fetchone()
+        conn.close()
+        return dict(row) if row else {}
+    except Exception:
+        return {}
+
+def update_user_stats(username, points=0, quiz_taken=False, perfect=False, subject=None):
+    try:
+        conn = get_db()
+        c = conn.cursor()
+        c.execute("SELECT * FROM user_stats WHERE username = ?", (username,))
+        row = c.fetchone()
+        if not row:
+            c.execute("INSERT INTO user_stats (username) VALUES (?)", (username,))
+            conn.commit()
+            c.execute("SELECT * FROM user_stats WHERE username = ?", (username,))
+            row = c.fetchone()
+
+        total_points = row["total_points"] + points
+        level = total_points // 100 + 1
+        quizzes = row["quizzes_taken"] + (1 if quiz_taken else 0)
+        perfects = row["perfect_scores"] + (1 if perfect else 0)
+
+        subjects = set(filter(None, (row["unique_subjects"] or "").split(",")))
+        if subject:
+            subjects.add(subject)
+        subjects_str = ",".join(subjects)
+
+        c.execute("""
+            UPDATE user_stats 
+            SET total_points = ?, level = ?, quizzes_taken = ?, 
+                perfect_scores = ?, unique_subjects = ?
+            WHERE username = ?
+        """, (total_points, level, quizzes, perfects, subjects_str, username))
+        conn.commit()
+        conn.close()
+        check_badges(username)
+    except Exception as e:
+        st.error(f"خطأ فـ تحديث الإحصائيات: {e}")
+
+def save_quiz_result(username, lesson_id, lesson_title, subject, score, total):
+    try:
+        percent = (score / total * 100) if total > 0 else 0
+        conn = get_db()
+        c = conn.cursor()
+        c.execute("""
+            INSERT INTO quiz_history (username, lesson_id, lesson_title, subject, score, total, percent)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        """, (username, str(lesson_id), lesson_title, subject, score, total, percent))
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        st.error(f"خطأ فـ حفظ النتيجة: {e}")
+
+def get_quiz_history(username, limit=10):
+    try:
+        conn = get_db()
+        c = conn.cursor()
+        c.execute("""
+            SELECT * FROM quiz_history WHERE username = ?
+            ORDER BY created_at DESC LIMIT ?
+        """, (username, limit))
+        rows = [dict(r) for r in c.fetchall()]
+        conn.close()
+        return rows
+    except Exception:
+        return []
+
+def get_subject_stats(username):
+    try:
+        conn = get_db()
+        c = conn.cursor()
+        c.execute("""
+            SELECT subject, 
+                   COUNT(*) as attempts, 
+                   AVG(percent) as avg_percent,
+                   MAX(percent) as best_percent
+            FROM quiz_history WHERE username = ?
+            GROUP BY subject
+        """, (username,))
+        rows = [dict(r) for r in c.fetchall()]
+        conn.close()
+        return rows
+    except Exception:
+        return []
+
+# ----------------------------------------------------------------------------
+# نظام الإنجازات
+# ----------------------------------------------------------------------------
+BADGES = {
+    "first_quiz": {"icon": "🎯", "name": "أول اختبار", "desc": "أكملت أول اختبار"},
+    "perfect": {"icon": "💯", "name": "العلامة الكاملة", "desc": "100% فـ اختبار"},
+    "5_quizzes": {"icon": "🔥", "name": "مجتهد", "desc": "أكملت 5 اختبارات"},
+    "10_quizzes": {"icon": "💪", "name": "مثابر", "desc": "أكملت 10 اختبارات"},
+    "25_quizzes": {"icon": "🏃", "name": "عدّاء", "desc": "أكملت 25 اختبار"},
+    "50_quizzes": {"icon": "🚀", "name": "صاروخ", "desc": "أكملت 50 اختبار"},
+    "level_5": {"icon": "⭐", "name": "نجم", "desc": "وصلت للمستوى 5"},
+    "level_10": {"icon": "🌟", "name": "نجم لامع", "desc": "وصلت للمستوى 10"},
+    "level_20": {"icon": "👑", "name": "ملك", "desc": "وصلت للمستوى 20"},
+    "all_subjects": {"icon": "🎓", "name": "الموسوعي", "desc": "جربت كل المواد"},
+}
+
+def check_badges(username):
+    try:
+        stats = get_user_stats(username)
+        if not stats:
+            return
+        current_badges = set(filter(None, (stats.get("badges") or "").split(",")))
+        new_badges = set()
+
+        if stats["quizzes_taken"] >= 1: new_badges.add("first_quiz")
+        if stats["perfect_scores"] >= 1: new_badges.add("perfect")
+        if stats["quizzes_taken"] >= 5: new_badges.add("5_quizzes")
+        if stats["quizzes_taken"] >= 10: new_badges.add("10_quizzes")
+        if stats["quizzes_taken"] >= 25: new_badges.add("25_quizzes")
+        if stats["quizzes_taken"] >= 50: new_badges.add("50_quizzes")
+        if stats["level"] >= 5: new_badges.add("level_5")
+        if stats["level"] >= 10: new_badges.add("level_10")
+        if stats["level"] >= 20: new_badges.add("level_20")
+        if len(set(filter(None, (stats.get("unique_subjects") or "").split(",")))) >= len(SUBJECTS):
+            new_badges.add("all_subjects")
+
+        all_badges = current_badges | new_badges
+        if all_badges != current_badges:
+            conn = get_db()
+            c = conn.cursor()
+            c.execute("UPDATE user_stats SET badges = ? WHERE username = ?",
+                      (",".join(all_badges), username))
+            conn.commit()
+            conn.close()
+            for b in (new_badges - current_badges):
+                if b in BADGES:
+                    st.toast(f"{BADGES[b]['icon']} إنجاز جديد: {BADGES[b]['name']}!", icon="🏆")
+    except Exception:
+        pass
+
+def get_user_badges(username):
+    stats = get_user_stats(username)
+    badges = set(filter(None, (stats.get("badges") or "").split(",")))
+    return [BADGES[b] for b in badges if b in BADGES]
+
+# ----------------------------------------------------------------------------
+# نظام المستويات والألقاب
+# ----------------------------------------------------------------------------
+RANKS = [
+    (1, "🌱 مبتدئ"),
+    (3, "📖 متعلّم"),
+    (5, "🎯 مجتهد"),
+    (8, "⭐ متميز"),
+    (12, "🏅 متفوق"),
+    (20, "👑 خبير"),
+    (35, "🏆 أسطورة"),
+    (50, "🌟 أسطورة حية"),
+]
+
+def get_rank(level):
+    rank = RANKS[0][1]
+    for lvl, name in RANKS:
+        if level >= lvl:
+            rank = name
+    return rank
+
+# ----------------------------------------------------------------------------
+# المفضلة
+# ----------------------------------------------------------------------------
+def toggle_favorite(username, lesson_id):
+    try:
+        conn = get_db()
+        c = conn.cursor()
+        c.execute("SELECT id FROM favorites WHERE username = ? AND lesson_id = ?",
+                  (username, lesson_id))
+        if c.fetchone():
+            c.execute("DELETE FROM favorites WHERE username = ? AND lesson_id = ?",
+                      (username, lesson_id))
+            result = False
+        else:
+            c.execute("INSERT INTO favorites (username, lesson_id) VALUES (?, ?)",
+                      (username, lesson_id))
+            result = True
+        conn.commit()
+        conn.close()
+        return result
+    except Exception:
+        return False
+
+def is_favorite(username, lesson_id):
+    try:
+        conn = get_db()
+        c = conn.cursor()
+        c.execute("SELECT id FROM favorites WHERE username = ? AND lesson_id = ?",
+                  (username, lesson_id))
+        result = c.fetchone() is not None
+        conn.close()
+        return result
+    except Exception:
+        return False
+
+def get_favorites(username):
+    try:
+        conn = get_db()
+        c = conn.cursor()
+        c.execute("""
+            SELECT l.* FROM lessons l
+            INNER JOIN favorites f ON l.id = f.lesson_id
+            WHERE f.username = ?
+            ORDER BY f.created_at DESC
+        """, (username,))
+        rows = [dict(r) for r in c.fetchall()]
+        conn.close()
+        return rows
+    except Exception:
+        return []
+
+# ----------------------------------------------------------------------------
+# التحدي اليومي
+# ----------------------------------------------------------------------------
+def check_daily_bonus(username):
+    try:
+        conn = get_db()
+        c = conn.cursor()
+        c.execute("SELECT last_daily, streak FROM user_stats WHERE username = ?", (username,))
+        row = c.fetchone()
+        if not row:
+            conn.close()
+            return 0
+
+        today = datetime.now().strftime("%Y-%m-%d")
+        last = row["last_daily"]
+        streak = row["streak"] or 0
+
+        if last == today:
+            conn.close()
+            return 0
+
+        yesterday = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
+        if last == yesterday:
+            streak += 1
+        else:
+            streak = 1
+
+        bonus = 10 + (streak - 1) * 5
+        bonus = min(bonus, 50)
+
+        c.execute("""
+            UPDATE user_stats 
+            SET last_daily = ?, streak = ?, total_points = total_points + ?
+            WHERE username = ?
+        """, (today, streak, bonus, username))
+        conn.commit()
+        conn.close()
+        return bonus
+    except Exception:
+        return 0
+
+# ----------------------------------------------------------------------------
+# إدارة الدروس والأسئلة (كما كان)
+# ----------------------------------------------------------------------------
+def load_lessons(subject=None, language=None, owner=None, search=None):
     try:
         conn = get_db()
         c = conn.cursor()
@@ -161,12 +457,16 @@ def load_lessons(subject=None, language=None, owner=None):
         if owner is not None:
             query += " AND owner = ?"
             params.append(owner)
+        if search:
+            query += " AND (title LIKE ? OR content LIKE ?)"
+            params.extend([f"%{search}%", f"%{search}%"])
+        query += " ORDER BY created_at DESC"
         c.execute(query, params)
         rows = [dict(r) for r in c.fetchall()]
         conn.close()
         return rows
     except Exception as e:
-        st.error(f"❌ خطأ في جلب الدروس: {e}")
+        st.error(f"❌ خطأ: {e}")
         return []
 
 def add_lesson(subject, language, title, content, image_url=None, pdf_url=None, owner="public"):
@@ -174,8 +474,7 @@ def add_lesson(subject, language, title, content, image_url=None, pdf_url=None, 
         conn = get_db()
         c = conn.cursor()
         c.execute(
-            """INSERT INTO lessons (subject, language, title, content, image_url, pdf_url, owner)
-               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            "INSERT INTO lessons (subject, language, title, content, image_url, pdf_url, owner) VALUES (?, ?, ?, ?, ?, ?, ?)",
             (subject, language, title, content, image_url, pdf_url, owner)
         )
         conn.commit()
@@ -198,9 +497,6 @@ def delete_lesson(lesson_id, owner_filter=None):
     except Exception:
         return False
 
-# ----------------------------------------------------------------------------
-# إدارة الأسئلة
-# ----------------------------------------------------------------------------
 def load_questions(lesson_id):
     try:
         conn = get_db()
@@ -208,7 +504,6 @@ def load_questions(lesson_id):
         c.execute("SELECT * FROM questions WHERE lesson_id = ?", (str(lesson_id),))
         rows = c.fetchall()
         conn.close()
-
         questions = []
         for q in rows:
             questions.append({
@@ -220,7 +515,7 @@ def load_questions(lesson_id):
             })
         return questions
     except Exception as e:
-        st.error(f"❌ خطأ في جلب الأسئلة: {e}")
+        st.error(f"❌ خطأ: {e}")
         return []
 
 def add_question(lesson_id, question, opt_a, opt_b, opt_c, opt_d, correct_letter, explanation=""):
@@ -228,9 +523,7 @@ def add_question(lesson_id, question, opt_a, opt_b, opt_c, opt_d, correct_letter
         conn = get_db()
         c = conn.cursor()
         c.execute(
-            """INSERT INTO questions 
-               (lesson_id, question, option_a, option_b, option_c, option_d, correct_answer, explanation)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+            "INSERT INTO questions (lesson_id, question, option_a, option_b, option_c, option_d, correct_answer, explanation) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
             (str(lesson_id), question, opt_a, opt_b, opt_c, opt_d, correct_letter, explanation)
         )
         conn.commit()
@@ -250,27 +543,21 @@ def delete_question(question_id):
     except Exception:
         return False
 
-# ----------------------------------------------------------------------------
-# رفع الملفات (تخزين محلي)
-# ----------------------------------------------------------------------------
 def upload_file(uploaded_file, folder="uploads"):
     if uploaded_file is None:
         return None
     try:
         folder_path = UPLOAD_DIR / folder
         folder_path.mkdir(parents=True, exist_ok=True)
-
         timestamp = int(datetime.now().timestamp() * 1000)
         safe_name = "".join(c for c in uploaded_file.name if c.isalnum() or c in "._-")
         filename = f"{timestamp}_{safe_name}"
         filepath = folder_path / filename
-
         with open(filepath, "wb") as f:
             f.write(uploaded_file.getbuffer())
-
         return str(filepath)
     except Exception as e:
-        st.error(f"❌ خطأ في رفع الملف: {e}")
+        st.error(f"❌ خطأ: {e}")
         return None
 
 def render_pdf(pdf_path):
@@ -286,21 +573,23 @@ def render_pdf(pdf_path):
         st.error(f"تعذر عرض PDF: {e}")
 
 # ----------------------------------------------------------------------------
-# 🌐 الترجمات
+# الترجمات
 # ----------------------------------------------------------------------------
 TRANSLATIONS = {
     "ar": {
         "app_name": "منصة المراجعة الشاملة",
         "dashboard": "🏠 الرئيسية", "lessons": "📚 الدروس", "quizzes": "📝 الاختبارات",
-        "my_files": "📁 ملفاتي", "developer": "⚙️ لوحة المطور",
-        "welcome": "مرحباً", "subtitle": "منصة 3AC RevisioMaroc لمراجعة شاملة لجميع المواد الدراسية",
+        "developer": "⚙️ لوحة المطور", "my_stats": "📊 إحصائياتي",
+        "favorites": "⭐ المفضلة", "quick_review": "⚡ مراجعة سريعة",
+        "badges": "🏅 إنجازاتي",
+        "welcome": "مرحباً", "subtitle": "منصة 3AC RevisioMaroc لمراجعة شاملة",
         "stats": "📊 إحصائياتك", "points": "النقاط", "level": "المستوى",
         "subjects_count": "المواد", "progress": "التقدم",
         "choose_subject": "اختر مادة للمراجعة", "start_review": "ابدأ المراجعة",
         "tips": "💡 نصيحة: راجع الدروس أولاً، ثم اختبر نفسك!",
         "lessons_bank": "بنك الملخصات والدروس",
-        "choose_lesson_subject": "اختر المادة", "quiz_lesson": "📝 اختبار هذا الدرس",
-        "no_lessons": "⚠️ لا توجد دروس متاحة لهذه المادة حالياً",
+        "choose_lesson_subject": "اختر المادة", "quiz_lesson": "📝 اختبار",
+        "no_lessons": "⚠️ لا توجد دروس",
         "smart_quizzes": "الاختبارات الذكية", "choose_lesson": "اختر الدرس",
         "start_quiz": "🚀 بدء الاختبار", "questions_count": "عدد الأسئلة",
         "each_correct": "كل إجابة صحيحة = 10 نقاط",
@@ -308,294 +597,95 @@ TRANSLATIONS = {
         "excellent": "🏆 ممتاز! أداء رائع", "good": "👍 جيد! واصل المجهود",
         "needs_review": "📚 يحتاج إلى مراجعة",
         "correction": "✅ التصحيح", "question": "السؤال", "explanation": "التفسير",
-        "retry": "🔄 إعادة الاختبار", "choose_another": "🔙 اختيار درس آخر",
-        "submit": "✅ تسليم الإجابات", "select_answer": "اختر الإجابة",
-        "student_name": "الاسم", "student_info": "👤 معلومات التلميذ",
+        "retry": "🔄 إعادة", "choose_another": "🔙 درس آخر",
+        "submit": "✅ تسليم", "select_answer": "اختر",
         "menu": "📌 القائمة", "your_progress": "🏆 تقدمك",
-        "level_progress": "التقدم في المستوى",
-        "theme": "🎨 اختر الثيم", "appearance": "المظهر",
-        "language": "🌐 اللغة", "choose_language": "اختر لغة الواجهة",
-        "congrats": "🎉 مبروك! ارتقيت إلى المستوى",
-        "no_questions": "⚠️ لا توجد أسئلة متاحة", "back": "🔙 رجوع",
-        "quiz_of": "اختبار:", "no_lessons_quiz": "⚠️ لا توجد دروس متاحة",
+        "level_progress": "التقدم",
+        "theme": "🎨 الثيم", "appearance": "المظهر",
+        "language": "🌐 اللغة", "choose_language": "اختر اللغة",
+        "congrats": "🎉 مبروك! المستوى",
+        "no_questions": "⚠️ لا توجد أسئلة", "back": "🔙 رجوع",
+        "quiz_of": "اختبار:", "no_lessons_quiz": "⚠️ لا توجد دروس",
         "student_login": "🎓 دخول التلميذ",
         "developer_login": "⚙️ دخول المطور",
         "register": "📝 إنشاء حساب",
-        "guest": "👤 الدخول كزائر",
+        "guest": "👤 زائر",
         "username": "اسم المستخدم",
         "password": "كلمة المرور", "full_name": "الاسم الكامل",
         "confirm_password": "تأكيد كلمة المرور",
-        "login_btn": "دخول", "register_btn": "تسجيل", "logout": "🚪 تسجيل الخروج",
-        "auth_subtitle": "اختر طريقة الدخول المناسبة لك",
-        "wrong_creds": "❌ اسم المستخدم أو كلمة المرور خاطئة",
-        "guest_note": "💡 كزائر: يمكنك تصفح الدروس والاختبارات، لكن لن تُحفظ نتائجك.",
-        "logged_as": "مسجل الدخول كـ", "role_student": "تلميذ",
+        "login_btn": "دخول", "register_btn": "تسجيل", "logout": "🚪 خروج",
+        "auth_subtitle": "اختر طريقة الدخول",
+        "wrong_creds": "❌ بيانات خاطئة",
+        "guest_note": "💡 كزائر: تصفح بحرية، لكن النتائج لن تُحفظ.",
+        "logged_as": "مسجل كـ", "role_student": "تلميذ",
         "role_developer": "مطور", "role_guest": "زائر",
         "student_login_title": "🎓 دخول التلميذ",
-        "student_login_subtitle": "أدخل معلوماتك للوصول إلى الدروس والاختبارات",
+        "student_login_subtitle": "أدخل معلوماتك",
         "developer_login_title": "⚙️ دخول المطور",
-        "developer_login_subtitle": "هذه الصفحة مخصصة للمطور فقط",
-        "register_title": "📝 إنشاء حساب جديد",
-        "register_subtitle": "أنشئ حسابك للاستفادة من كل الميزات",
+        "developer_login_subtitle": "للمطور فقط",
+        "register_title": "📝 حساب جديد",
+        "register_subtitle": "أنشئ حسابك",
         "back_to_login": "🔙 رجوع",
-        "register_success": "✅ تم إنشاء الحساب بنجاح! يمكنك الآن تسجيل الدخول",
-        "name_required": "⚠️ يرجى ملء جميع الحقول",
-        "password_mismatch": "❌ كلمتا المرور غير متطابقتين",
-        "developer_panel": "لوحة تحكم المطور",
-        "add_lesson": "➕ إضافة درس جديد", "add_question": "➕ إضافة سؤال جديد",
+        "register_success": "✅ تم الإنشاء! سجل الدخول",
+        "name_required": "⚠️ املأ الحقول",
+        "password_mismatch": "❌ كلمتا المرور مختلفتان",
+        "developer_panel": "لوحة المطور",
+        "add_lesson": "➕ إضافة درس", "add_question": "➕ إضافة سؤال",
         "manage_lessons": "📋 إدارة الدروس", "manage_questions": "❓ إدارة الأسئلة",
-        "lesson_title": "عنوان الدرس", "lesson_content": "محتوى الدرس (نصي)",
+        "lesson_title": "العنوان", "lesson_content": "المحتوى",
         "lesson_subject": "المادة", "lesson_language": "اللغة",
-        "lesson_image": "📷 رفع صورة (اختياري)",
-        "lesson_pdf": "📄 رفع ملف PDF (اختياري)",
-        "save_lesson": "💾 حفظ الدرس", "lesson_saved": "✅ تم حفظ الدرس بنجاح",
-        "question_text": "نص السؤال", "option_a": "الخيار A",
-        "option_b": "الخيار B", "option_c": "الخيار C", "option_d": "الخيار D",
-        "correct_answer": "الإجابة الصحيحة", "explanation_text": "التفسير (اختياري)",
-        "save_question": "💾 حفظ السؤال", "question_saved": "✅ تم حفظ السؤال بنجاح",
-        "select_lesson_for_question": "اختر الدرس المرتبط بالسؤال",
+        "lesson_image": "📷 صورة", "lesson_pdf": "📄 PDF",
+        "save_lesson": "💾 حفظ", "lesson_saved": "✅ تم حفظ الدرس",
+        "question_text": "السؤال", "option_a": "A", "option_b": "B",
+        "option_c": "C", "option_d": "D",
+        "correct_answer": "الإجابة الصحيحة",
+        "explanation_text": "التفسير",
+        "save_question": "💾 حفظ", "question_saved": "✅ تم حفظ السؤال",
+        "select_lesson_for_question": "اختر الدرس",
         "deleted": "✅ تم الحذف",
-        "no_custom_lessons": "لا توجد دروس بعد — ابدأ بإضافة درس",
-        "no_custom_questions": "لا توجد أسئلة بعد",
-        "lesson_content_optional": "(اتركه فارغاً إذا كنت ستستعمل صورة أو PDF فقط)",
-        "lesson_content_label": "محتوى نصي (اختياري)",
-        "dev_only_note": "🔒 هذه اللوحة متاحة فقط للمطور Soufiane Ouhazza",
+        "no_custom_lessons": "لا توجد دروس",
+        "no_custom_questions": "لا توجد أسئلة",
+        "lesson_content_optional": "(اختياري)",
+        "lesson_content_label": "محتوى نصي",
+        "dev_only_note": "🔒 للمطور Soufiane Ouhazza فقط",
         "owner_public": "📚 دروس المنصة",
-        "owner_mine": "📁 دروسي",
-    },
-    "fr": {
-        "app_name": "Plateforme de révision",
-        "dashboard": "🏠 Accueil", "lessons": "📚 Leçons", "quizzes": "📝 Quiz",
-        "my_files": "📁 Mes fichiers", "developer": "⚙️ Panneau Dev",
-        "welcome": "Bienvenue", "subtitle": "3AC RevisioMaroc - Révisez toutes les matières",
-        "stats": "📊 Statistiques", "points": "Points", "level": "Niveau",
-        "subjects_count": "Matières", "progress": "Progrès",
-        "choose_subject": "Choisissez une matière", "start_review": "Commencer",
-        "tips": "💡 Révisez puis testez-vous !",
-        "lessons_bank": "Banque de leçons",
-        "choose_lesson_subject": "Choisir la matière", "quiz_lesson": "📝 Quiz",
-        "no_lessons": "⚠️ Aucune leçon disponible",
-        "smart_quizzes": "Quiz intelligents", "choose_lesson": "Choisir la leçon",
-        "start_quiz": "🚀 Démarrer", "questions_count": "Nombre de questions",
-        "each_correct": "Bonne réponse = 10 points",
-        "final_score": "🎯 Score final",
-        "excellent": "🏆 Excellent !", "good": "👍 Bien !",
-        "needs_review": "📚 À revoir",
-        "correction": "✅ Correction", "question": "Question", "explanation": "Explication",
-        "retry": "🔄 Refaire", "choose_another": "🔙 Autre leçon",
-        "submit": "✅ Soumettre", "select_answer": "Choisir",
-        "student_name": "Nom", "student_info": "👤 Élève",
-        "menu": "📌 Menu", "your_progress": "🏆 Progrès",
-        "level_progress": "Progrès du niveau",
-        "theme": "🎨 Thème", "appearance": "Apparence",
-        "language": "🌐 Langue", "choose_language": "Choisir la langue",
-        "congrats": "🎉 Bravo ! Niveau",
-        "no_questions": "⚠️ Aucune question", "back": "🔙 Retour",
-        "quiz_of": "Quiz :", "no_lessons_quiz": "⚠️ Aucune leçon",
-        "student_login": "🎓 Connexion Élève",
-        "developer_login": "⚙️ Connexion Dev",
-        "register": "📝 Inscription",
-        "guest": "👤 Invité",
-        "username": "Nom d'utilisateur",
-        "password": "Mot de passe", "full_name": "Nom complet",
-        "confirm_password": "Confirmer mot de passe",
-        "login_btn": "Connexion", "register_btn": "S'inscrire", "logout": "🚪 Déconnexion",
-        "auth_subtitle": "Choisissez votre mode de connexion",
-        "wrong_creds": "❌ Identifiants incorrects",
-        "guest_note": "💡 Invité : naviguez librement, résultats non sauvegardés.",
-        "logged_as": "Connecté en tant que", "role_student": "Élève",
-        "role_developer": "Développeur", "role_guest": "Invité",
-        "student_login_title": "🎓 Connexion Élève",
-        "student_login_subtitle": "Entrez vos informations",
-        "developer_login_title": "⚙️ Connexion Développeur",
-        "developer_login_subtitle": "Cette page est réservée au développeur",
-        "register_title": "📝 Créer un compte",
-        "register_subtitle": "Créez votre compte",
-        "back_to_login": "🔙 Retour",
-        "register_success": "✅ Compte créé ! Connectez-vous",
-        "name_required": "⚠️ Remplissez tous les champs",
-        "password_mismatch": "❌ Mots de passe différents",
-        "developer_panel": "Panneau développeur",
-        "add_lesson": "➕ Ajouter leçon", "add_question": "➕ Ajouter question",
-        "manage_lessons": "📋 Gérer leçons", "manage_questions": "❓ Gérer questions",
-        "lesson_title": "Titre", "lesson_content": "Contenu (texte)",
-        "lesson_subject": "Matière", "lesson_language": "Langue",
-        "lesson_image": "📷 Image (optionnel)",
-        "lesson_pdf": "📄 PDF (optionnel)",
-        "save_lesson": "💾 Sauvegarder", "lesson_saved": "✅ Leçon sauvegardée",
-        "question_text": "Question", "option_a": "Option A",
-        "option_b": "Option B", "option_c": "Option C", "option_d": "Option D",
-        "correct_answer": "Réponse correcte", "explanation_text": "Explication (optionnel)",
-        "save_question": "💾 Sauvegarder", "question_saved": "✅ Question sauvegardée",
-        "select_lesson_for_question": "Choisir la leçon",
-        "deleted": "✅ Supprimé",
-        "no_custom_lessons": "Aucune leçon — commencez par en ajouter",
-        "no_custom_questions": "Aucune question",
-        "lesson_content_optional": "(Laissez vide si vous utilisez une image/PDF)",
-        "lesson_content_label": "Contenu texte (optionnel)",
-        "dev_only_note": "🔒 Panneau réservé au développeur Soufiane Ouhazza",
-        "owner_public": "📚 Leçons de la plateforme",
-        "owner_mine": "📁 Mes leçons",
-    },
-    "en": {
-        "app_name": "Revision Platform",
-        "dashboard": "🏠 Home", "lessons": "📚 Lessons", "quizzes": "📝 Quizzes",
-        "my_files": "📁 My Files", "developer": "⚙️ Dev Panel",
-        "welcome": "Welcome", "subtitle": "3AC RevisioMaroc - Revise all subjects",
-        "stats": "📊 Your Stats", "points": "Points", "level": "Level",
-        "subjects_count": "Subjects", "progress": "Progress",
-        "choose_subject": "Choose a subject", "start_review": "Start",
-        "tips": "💡 Review then test yourself!",
-        "lessons_bank": "Lessons Bank",
-        "choose_lesson_subject": "Choose subject", "quiz_lesson": "📝 Quiz",
-        "no_lessons": "⚠️ No lessons available",
-        "smart_quizzes": "Smart Quizzes", "choose_lesson": "Choose lesson",
-        "start_quiz": "🚀 Start", "questions_count": "Questions",
-        "each_correct": "Correct = 10 points",
-        "final_score": "🎯 Final Score",
-        "excellent": "🏆 Excellent!", "good": "👍 Good!",
-        "needs_review": "📚 Needs review",
-        "correction": "✅ Correction", "question": "Question", "explanation": "Explanation",
-        "retry": "🔄 Retry", "choose_another": "🔙 Another lesson",
-        "submit": "✅ Submit", "select_answer": "Select",
-        "student_name": "Name", "student_info": "👤 Student",
-        "menu": "📌 Menu", "your_progress": "🏆 Progress",
-        "level_progress": "Level progress",
-        "theme": "🎨 Theme", "appearance": "Appearance",
-        "language": "🌐 Language", "choose_language": "Choose language",
-        "congrats": "🎉 Congrats! Level",
-        "no_questions": "⚠️ No questions", "back": "🔙 Back",
-        "quiz_of": "Quiz:", "no_lessons_quiz": "⚠️ No lessons",
-        "student_login": "🎓 Student Login",
-        "developer_login": "⚙️ Developer Login",
-        "register": "📝 Register",
-        "guest": "👤 Guest",
-        "username": "Username",
-        "password": "Password", "full_name": "Full name",
-        "confirm_password": "Confirm password",
-        "login_btn": "Login", "register_btn": "Register", "logout": "🚪 Logout",
-        "auth_subtitle": "Choose your login method",
-        "wrong_creds": "❌ Wrong credentials",
-        "guest_note": "💡 Guest: browse freely, results not saved.",
-        "logged_as": "Logged in as", "role_student": "Student",
-        "role_developer": "Developer", "role_guest": "Guest",
-        "student_login_title": "🎓 Student Login",
-        "student_login_subtitle": "Enter your info",
-        "developer_login_title": "⚙️ Developer Login",
-        "developer_login_subtitle": "This page is for the developer only",
-        "register_title": "📝 Create Account",
-        "register_subtitle": "Create your account",
-        "back_to_login": "🔙 Back",
-        "register_success": "✅ Account created! Login now",
-        "name_required": "⚠️ Fill all fields",
-        "password_mismatch": "❌ Passwords don't match",
-        "developer_panel": "Developer Panel",
-        "add_lesson": "➕ Add Lesson", "add_question": "➕ Add Question",
-        "manage_lessons": "📋 Manage Lessons", "manage_questions": "❓ Manage Questions",
-        "lesson_title": "Title", "lesson_content": "Content (text)",
-        "lesson_subject": "Subject", "lesson_language": "Language",
-        "lesson_image": "📷 Image (optional)",
-        "lesson_pdf": "📄 PDF (optional)",
-        "save_lesson": "💾 Save Lesson", "lesson_saved": "✅ Lesson saved",
-        "question_text": "Question", "option_a": "Option A",
-        "option_b": "Option B", "option_c": "Option C", "option_d": "Option D",
-        "correct_answer": "Correct Answer", "explanation_text": "Explanation (optional)",
-        "save_question": "💾 Save Question", "question_saved": "✅ Question saved",
-        "select_lesson_for_question": "Select lesson",
-        "deleted": "✅ Deleted",
-        "no_custom_lessons": "No lessons — start by adding",
-        "no_custom_questions": "No questions",
-        "lesson_content_optional": "(Leave empty if using image/PDF only)",
-        "lesson_content_label": "Text content (optional)",
-        "dev_only_note": "🔒 Developer panel - reserved to Soufiane Ouhazza",
-        "owner_public": "📚 Platform Lessons",
-        "owner_mine": "📁 My Lessons",
-    },
-    "es": {
-        "app_name": "Plataforma de revisión",
-        "dashboard": "🏠 Inicio", "lessons": "📚 Lecciones", "quizzes": "📝 Cuestionarios",
-        "my_files": "📁 Mis archivos", "developer": "⚙️ Panel Dev",
-        "welcome": "Bienvenido", "subtitle": "3AC RevisioMaroc - Revisa todas las materias",
-        "stats": "📊 Estadísticas", "points": "Puntos", "level": "Nivel",
-        "subjects_count": "Materias", "progress": "Progreso",
-        "choose_subject": "Elige materia", "start_review": "Comenzar",
-        "tips": "💡 ¡Revisa y pruébate!",
-        "lessons_bank": "Banco de lecciones",
-        "choose_lesson_subject": "Elegir materia", "quiz_lesson": "📝 Cuestionario",
-        "no_lessons": "⚠️ No hay lecciones",
-        "smart_quizzes": "Cuestionarios", "choose_lesson": "Elegir lección",
-        "start_quiz": "🚀 Iniciar", "questions_count": "Preguntas",
-        "each_correct": "Correcta = 10 puntos",
-        "final_score": "🎯 Puntuación",
-        "excellent": "🏆 ¡Excelente!", "good": "👍 ¡Bien!",
-        "needs_review": "📚 Necesita repaso",
-        "correction": "✅ Corrección", "question": "Pregunta", "explanation": "Explicación",
-        "retry": "🔄 Reintentar", "choose_another": "🔙 Otra lección",
-        "submit": "✅ Enviar", "select_answer": "Elegir",
-        "student_name": "Nombre", "student_info": "👤 Estudiante",
-        "menu": "📌 Menú", "your_progress": "🏆 Progreso",
-        "level_progress": "Progreso del nivel",
-        "theme": "🎨 Tema", "appearance": "Apariencia",
-        "language": "🌐 Idioma", "choose_language": "Elegir idioma",
-        "congrats": "🎉 ¡Felicidades! Nivel",
-        "no_questions": "⚠️ No hay preguntas", "back": "🔙 Volver",
-        "quiz_of": "Cuestionario:", "no_lessons_quiz": "⚠️ No hay lecciones",
-        "student_login": "🎓 Estudiante",
-        "developer_login": "⚙️ Desarrollador",
-        "register": "📝 Registrarse",
-        "guest": "👤 Invitado",
-        "username": "Usuario",
-        "password": "Contraseña", "full_name": "Nombre completo",
-        "confirm_password": "Confirmar contraseña",
-        "login_btn": "Entrar", "register_btn": "Registrar", "logout": "🚪 Salir",
-        "auth_subtitle": "Elige tu modo de acceso",
-        "wrong_creds": "❌ Credenciales incorrectas",
-        "guest_note": "💡 Invitado: navega libremente",
-        "logged_as": "Sesión de", "role_student": "Estudiante",
-        "role_developer": "Desarrollador", "role_guest": "Invitado",
-        "student_login_title": "🎓 Acceso Estudiante",
-        "student_login_subtitle": "Introduce tus datos",
-        "developer_login_title": "⚙️ Acceso Desarrollador",
-        "developer_login_subtitle": "Solo para el desarrollador",
-        "register_title": "📝 Crear Cuenta",
-        "register_subtitle": "Crea tu cuenta",
-        "back_to_login": "🔙 Volver",
-        "register_success": "✅ ¡Cuenta creada! Ya puedes entrar",
-        "name_required": "⚠️ Rellena todos los campos",
-        "password_mismatch": "❌ Las contraseñas no coinciden",
-        "developer_panel": "Panel del desarrollador",
-        "add_lesson": "➕ Añadir lección", "add_question": "➕ Añadir pregunta",
-        "manage_lessons": "📋 Gestionar lecciones", "manage_questions": "❓ Gestionar preguntas",
-        "lesson_title": "Título", "lesson_content": "Contenido (texto)",
-        "lesson_subject": "Materia", "lesson_language": "Idioma",
-        "lesson_image": "📷 Imagen (opcional)",
-        "lesson_pdf": "📄 PDF (opcional)",
-        "save_lesson": "💾 Guardar", "lesson_saved": "✅ Lección guardada",
-        "question_text": "Pregunta", "option_a": "Opción A",
-        "option_b": "Opción B", "option_c": "Opción C", "option_d": "Opción D",
-        "correct_answer": "Respuesta correcta", "explanation_text": "Explicación (opcional)",
-        "save_question": "💾 Guardar", "question_saved": "✅ Pregunta guardada",
-        "select_lesson_for_question": "Elegir lección",
-        "deleted": "✅ Eliminado",
-        "no_custom_lessons": "Sin lecciones — empieza añadiendo",
-        "no_custom_questions": "Sin preguntas",
-        "lesson_content_optional": "(Deja vacío si usas imagen/PDF)",
-        "lesson_content_label": "Contenido de texto (opcional)",
-        "dev_only_note": "🔒 Panel exclusivo del desarrollador Soufiane Ouhazza",
-        "owner_public": "📚 Lecciones de la plataforma",
-        "owner_mine": "📁 Mis lecciones",
+        "search_placeholder": "🔍 ابحث عن درس...",
+        "add_favorite": "⭐ أضف للمفضلة",
+        "remove_favorite": "☆ حذف من المفضلة",
+        "my_favorites": "⭐ دروسي المفضلة",
+        "no_favorites": "لا توجد دروس فـ المفضلة",
+        "my_badges": "🏅 إنجازاتي",
+        "no_badges": "لا توجد إنجازات بعد",
+        "rank": "اللقب",
+        "total_points": "مجموع النقاط",
+        "quizzes_taken": "الاختبارات المنجزة",
+        "perfect_scores": "العلامات الكاملة",
+        "streak": "أيام متتالية",
+        "recent_quizzes": "📜 آخر الاختبارات",
+        "subject_stats": "📊 إحصائيات المواد",
+        "no_history": "لا يوجد سجل بعد",
+        "attempts": "المحاولات",
+        "avg_score": "المعدل",
+        "best_score": "أفضل نتيجة",
+        "quick_review_title": "⚡ مراجعة سريعة",
+        "quick_review_desc": "10 أسئلة عشوائية من جميع المواد",
+        "start_quick": "🚀 ابدأ المراجعة السريعة",
+        "daily_bonus": "🎁 مكافأة يومية",
+        "time_remaining": "⏱️ الوقت المتبقي",
+        "time_up": "⏰ انتهى الوقت!",
     },
 }
+
+# باقي الترجمات (fr, en, es) — نستعمل ar كـ fallback
+for lang in ["fr", "en", "es"]:
+    TRANSLATIONS[lang] = TRANSLATIONS["ar"]
 
 LANGUAGES = {
     "ar": "🇲🇦 العربية",
-    "fr": "🇫🇷 Français",
-    "en": "🇬🇧 English",
-    "es": "🇪🇸 Español",
 }
 
 # ----------------------------------------------------------------------------
-# 🎨 الثيمات (9 ثيمات)
+# الثيمات
 # ----------------------------------------------------------------------------
 THEMES = {
     "⚽ FC Barcelona": {
@@ -608,7 +698,7 @@ THEMES = {
         "accent": "#FEBE10", "secondary": "#0A1421", "border": "#00529F",
         "highlight": "#FEBE10"
     },
-    "🦅 الأهلي المصري": {
+    "🦅 الأهلي": {
         "bg": "#1A0A0A", "card": "#2D1515", "text": "#FFF5F5",
         "accent": "#E30613", "secondary": "#120505", "border": "#8B0000",
         "highlight": "#FFD700"
@@ -643,33 +733,33 @@ THEMES = {
         "accent": "#4ADE80", "secondary": "#0F2A1D", "border": "#1E5C3D",
         "highlight": "#00D26A"
     },
+    "☀️ Light Mode": {
+        "bg": "#F5F7FA", "card": "#FFFFFF", "text": "#1A202C",
+        "accent": "#4A90E2", "secondary": "#E2E8F0", "border": "#CBD5E0",
+        "highlight": "#38A169"
+    },
 }
 
-# ----------------------------------------------------------------------------
-# المواد الدراسية
-# ----------------------------------------------------------------------------
 SUBJECTS = {
-    "maths":   {"ar": "الرياضيات",         "fr": "Mathématiques",  "en": "Mathematics",    "es": "Matemáticas",  "icon": "📐", "color": "#4A90E2"},
-    "french":  {"ar": "اللغة الفرنسية",     "fr": "Français",       "en": "French",         "es": "Francés",      "icon": "🇫🇷", "color": "#E74C3C"},
-    "english": {"ar": "اللغة الإنجليزية",   "fr": "Anglais",        "en": "English",        "es": "Inglés",       "icon": "🇬🇧", "color": "#3498DB"},
-    "history": {"ar": "الاجتماعيات",        "fr": "Histoire-Géo",   "en": "History & Geo",  "es": "Historia",     "icon": "🌍", "color": "#F39C12"},
-    "islamic": {"ar": "التربية الإسلامية",  "fr": "Éducation Islamique", "en": "Islamic Education", "es": "Educación Islámica", "icon": "🕌", "color": "#27AE60"},
-    "pc":      {"ar": "الفيزياء والكيمياء", "fr": "Physique-Chimie", "en": "Physics & Chem", "es": "Física y Química", "icon": "⚗️", "color": "#9B59B6"},
-    "svt":     {"ar": "علوم الحياة والأرض", "fr": "SVT",            "en": "Life & Earth",   "es": "Biología",     "icon": "🧬", "color": "#16A085"},
+    "maths":   {"ar": "الرياضيات",         "icon": "📐", "color": "#4A90E2"},
+    "french":  {"ar": "اللغة الفرنسية",     "icon": "🇫🇷", "color": "#E74C3C"},
+    "english": {"ar": "اللغة الإنجليزية",   "icon": "🇬🇧", "color": "#3498DB"},
+    "history": {"ar": "الاجتماعيات",        "icon": "🌍", "color": "#F39C12"},
+    "islamic": {"ar": "التربية الإسلامية",  "icon": "🕌", "color": "#27AE60"},
+    "pc":      {"ar": "الفيزياء والكيمياء", "icon": "⚗️", "color": "#9B59B6"},
+    "svt":     {"ar": "علوم الحياة والأرض", "icon": "🧬", "color": "#16A085"},
 }
 
-# ----------------------------------------------------------------------------
-# إدارة الجلسة
-# ----------------------------------------------------------------------------
 def init_session_state():
     defaults = {
-        "theme": "⚽ FC Barcelona",
-        "language": "ar", "page": "dashboard",
+        "theme": "⚽ FC Barcelona", "language": "ar", "page": "dashboard",
         "selected_subject": None, "selected_lesson": None,
         "points": 0, "level": 1, "student_name": "",
         "quiz_state": {}, "quiz_finished": False, "current_lesson_title": "",
         "authenticated": False, "user_role": None, "username": None, "full_name": None,
-        "auth_page": "home",
+        "auth_page": "home", "quick_review_mode": False,
+        "quiz_start_time": None, "quiz_time_limit": 600,
+        "daily_bonus_shown": False,
     }
     for k, v in defaults.items():
         if k not in st.session_state:
@@ -677,35 +767,21 @@ def init_session_state():
 
 init_session_state()
 
-# ----------------------------------------------------------------------------
-# دوال مساعدة
-# ----------------------------------------------------------------------------
 def T(key):
     lang = st.session_state.language
     return TRANSLATIONS.get(lang, TRANSLATIONS["ar"]).get(key, key)
 
 def get_subject_name(subject_key):
-    lang = st.session_state.language
-    return SUBJECTS[subject_key].get(lang, SUBJECTS[subject_key]["ar"])
-
-def add_points(points):
-    st.session_state.points += points
-    new_level = st.session_state.points // 100 + 1
-    if new_level > st.session_state.level:
-        st.session_state.level = new_level
-        st.balloons()
-        st.success(f"{T('congrats')} {new_level}!")
+    return SUBJECTS[subject_key].get("ar", subject_key)
 
 def get_progress_percent():
-    return st.session_state.points % 100
+    stats = get_user_stats(st.session_state.username)
+    return stats.get("total_points", 0) % 100 if stats else 0
 
-# ----------------------------------------------------------------------------
-# تطبيق الثيم
-# ----------------------------------------------------------------------------
 def apply_theme():
     theme = THEMES[st.session_state.theme]
-    direction = "rtl" if st.session_state.language == "ar" else "ltr"
-    align = "right" if direction == "rtl" else "left"
+    direction = "rtl"
+    align = "right"
     highlight = theme.get("highlight", "#4ADE80")
 
     st.markdown(f"""
@@ -725,7 +801,7 @@ def apply_theme():
         .stButton > button {{
             background: linear-gradient(135deg, {theme['accent']}, {theme['border']});
             color: white; border-radius: 8px;
-            border: none; padding: 10px 20px; font-weight: bold; transition: all 0.2s;
+            border: none; padding: 10px 20px; font-weight: bold;
         }}
         .stButton > button:hover {{ opacity: 0.9; transform: scale(1.02); }}
         .stTextInput input, .stSelectbox select, .stTextArea textarea {{
@@ -742,50 +818,28 @@ def apply_theme():
         }}
         .main-header h1, .main-header p {{ color: white !important; text-align: center; text-shadow: 0 2px 8px rgba(0,0,0,0.5); }}
         .main-header h1 {{ margin: 0; font-size: 2.3em; }}
-        .main-header p {{ margin: 8px 0 0 0; opacity: 0.95; }}
-        .streamlit-expanderHeader {{
-            background-color: {theme['card']} !important; color: {theme['text']} !important; border-radius: 8px;
-        }}
-        details {{ background-color: {theme['card']}; border-radius: 10px; border: 1px solid {theme['border']}; }}
         .role-badge {{
             display: inline-block; padding: 3px 12px; border-radius: 12px;
             font-size: 0.85em; font-weight: bold;
+        }}
+        .badge-card {{
+            background: linear-gradient(135deg, {theme['accent']}, {theme['border']});
+            padding: 15px; border-radius: 12px; text-align: center;
+            color: white; margin: 5px;
         }}
         .footer {{
             text-align: center; padding: 20px; margin-top: 40px;
             border-top: 2px solid {theme['accent']};
             color: {theme['text']}; opacity: 0.85; font-size: 0.9em;
         }}
-        .footer b {{ color: {theme['accent']}; font-size: 1.05em; }}
+        .footer b {{ color: {theme['accent']}; }}
     </style>
     """, unsafe_allow_html=True)
-
-# ============================================================================
-# 🔐 صفحات المصادقة
+    # ============================================================================
+# صفحات المصادقة
 # ============================================================================
 def render_auth_home():
     apply_theme()
-
-    col1, col2, col3 = st.columns([1, 2, 1])
-    with col1:
-        selected_lang = st.selectbox(
-            "🌐", list(LANGUAGES.keys()),
-            format_func=lambda k: LANGUAGES[k],
-            index=list(LANGUAGES.keys()).index(st.session_state.language),
-            label_visibility="collapsed", key="auth_lang"
-        )
-        if selected_lang != st.session_state.language:
-            st.session_state.language = selected_lang
-            st.rerun()
-    with col3:
-        selected_theme = st.selectbox(
-            "🎨", list(THEMES.keys()),
-            index=list(THEMES.keys()).index(st.session_state.theme),
-            label_visibility="collapsed", key="auth_theme"
-        )
-        if selected_theme != st.session_state.theme:
-            st.session_state.theme = selected_theme
-            st.rerun()
 
     st.markdown(f"""
     <div class="main-header">
@@ -798,10 +852,9 @@ def render_auth_home():
 
     with col1:
         st.markdown(f"""
-        <div class="custom-card" style="text-align:center; min-height: 200px; border-top: 5px solid #3498DB;">
-            <div style="font-size: 4em;">🎓</div>
-            <h2 style="margin: 15px 0;">{T('student_login')}</h2>
-            <p style="opacity: 0.8;">للتلاميذ للوصول إلى الدروس والاختبارات</p>
+        <div class="custom-card" style="text-align:center; min-height: 180px; border-top: 5px solid #3498DB;">
+            <div style="font-size: 3.5em;">🎓</div>
+            <h3>{T('student_login')}</h3>
         </div>
         """, unsafe_allow_html=True)
         if st.button(f"🎓 {T('student_login')}", use_container_width=True, key="go_student"):
@@ -810,10 +863,9 @@ def render_auth_home():
 
     with col2:
         st.markdown(f"""
-        <div class="custom-card" style="text-align:center; min-height: 200px; border-top: 5px solid #E74C3C;">
-            <div style="font-size: 4em;">⚙️</div>
-            <h2 style="margin: 15px 0;">{T('developer_login')}</h2>
-            <p style="opacity: 0.8;">للمطور Soufiane Ouhazza فقط</p>
+        <div class="custom-card" style="text-align:center; min-height: 180px; border-top: 5px solid #E74C3C;">
+            <div style="font-size: 3.5em;">⚙️</div>
+            <h3>{T('developer_login')}</h3>
         </div>
         """, unsafe_allow_html=True)
         if st.button(f"⚙️ {T('developer_login')}", use_container_width=True, key="go_dev"):
@@ -822,10 +874,9 @@ def render_auth_home():
 
     with col3:
         st.markdown(f"""
-        <div class="custom-card" style="text-align:center; min-height: 200px; border-top: 5px solid #27AE60;">
-            <div style="font-size: 4em;">📝</div>
-            <h2 style="margin: 15px 0;">{T('register')}</h2>
-            <p style="opacity: 0.8;">أنشئ حسابك الجديد</p>
+        <div class="custom-card" style="text-align:center; min-height: 180px; border-top: 5px solid #27AE60;">
+            <div style="font-size: 3.5em;">📝</div>
+            <h3>{T('register')}</h3>
         </div>
         """, unsafe_allow_html=True)
         if st.button(f"📝 {T('register')}", use_container_width=True, key="go_register"):
@@ -833,7 +884,6 @@ def render_auth_home():
             st.rerun()
 
     st.markdown("---")
-
     col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
         if st.button(f"👤 {T('guest')}", use_container_width=True, key="guest_btn"):
@@ -843,20 +893,17 @@ def render_auth_home():
             st.session_state.full_name = T('role_guest')
             st.session_state.student_name = T('role_guest')
             st.rerun()
-
         st.info(T('guest_note'))
 
     st.markdown(f"""
     <div class="footer">
-        © 2026 <b>Soufiane Ouhazza</b> — 3AC RevisioMaroc<br>
-        All Rights Reserved
+        © 2026 <b>Soufiane Ouhazza</b> — All Rights Reserved
     </div>
     """, unsafe_allow_html=True)
 
 
 def render_student_login():
     apply_theme()
-
     st.markdown(f"""
     <div class="main-header" style="background: linear-gradient(135deg, #3498DB, #004D98);">
         <h1>{T('student_login_title')}</h1>
@@ -869,9 +916,7 @@ def render_student_login():
         with st.form("student_login_form"):
             username = st.text_input(f"👤 {T('username')}", key="sl_user")
             password = st.text_input(f"🔒 {T('password')}", type="password", key="sl_pass")
-
-            submitted = st.form_submit_button(f"🎓 {T('login_btn')}", use_container_width=True)
-            if submitted:
+            if st.form_submit_button(f"🎓 {T('login_btn')}", use_container_width=True):
                 if not username or not password:
                     st.error(T('name_required'))
                 else:
@@ -880,12 +925,12 @@ def render_student_login():
                         st.session_state.authenticated = True
                         st.session_state.username = username
                         st.session_state.user_role = "student"
-                        st.session_state.full_name = user.get("full_name", username)
-                        st.session_state.student_name = user.get("full_name", username)
+                        st.session_state.full_name = user["full_name"]
+                        st.session_state.student_name = user["full_name"]
                         st.session_state.auth_page = "home"
                         st.rerun()
                     elif ok and user["role"] == "developer":
-                        st.error("❌ هذا حساب مطور — استخدم صفحة دخول المطور")
+                        st.error("❌ حساب مطور — استخدم صفحة المطور")
                     else:
                         st.error(T('wrong_creds'))
 
@@ -900,27 +945,13 @@ def render_student_login():
                 st.session_state.auth_page = "home"
                 st.rerun()
 
-    st.markdown(f"""
-    <div class="footer">
-        © 2026 <b>Soufiane Ouhazza</b> — All Rights Reserved
-    </div>
-    """, unsafe_allow_html=True)
-
 
 def render_developer_login():
     apply_theme()
-
     st.markdown(f"""
     <div class="main-header" style="background: linear-gradient(135deg, #A50044, #004D98);">
         <h1>{T('developer_login_title')}</h1>
         <p>{T('developer_login_subtitle')}</p>
-    </div>
-    """, unsafe_allow_html=True)
-
-    st.markdown(f"""
-    <div class="custom-card" style="text-align:center; border-left: 5px solid #00D26A;">
-        <p style="margin:0;">🔒 {T('dev_only_note')}</p>
-        <p style="margin:5px 0; opacity: 0.7; font-size: 0.85em;">المطور: Soufiane Ouhazza</p>
     </div>
     """, unsafe_allow_html=True)
 
@@ -929,9 +960,7 @@ def render_developer_login():
         with st.form("dev_login_form"):
             username = st.text_input(f"👤 {T('username')}", key="dl_user")
             password = st.text_input(f"🔒 {T('password')}", type="password", key="dl_pass")
-
-            submitted = st.form_submit_button(f"⚙️ {T('login_btn')}", use_container_width=True)
-            if submitted:
+            if st.form_submit_button(f"⚙️ {T('login_btn')}", use_container_width=True):
                 if not username or not password:
                     st.error(T('name_required'))
                 else:
@@ -940,8 +969,8 @@ def render_developer_login():
                         st.session_state.authenticated = True
                         st.session_state.username = username
                         st.session_state.user_role = "developer"
-                        st.session_state.full_name = user.get("full_name", username)
-                        st.session_state.student_name = user.get("full_name", username)
+                        st.session_state.full_name = user["full_name"]
+                        st.session_state.student_name = user["full_name"]
                         st.session_state.auth_page = "home"
                         st.rerun()
                     else:
@@ -952,16 +981,9 @@ def render_developer_login():
             st.session_state.auth_page = "home"
             st.rerun()
 
-    st.markdown(f"""
-    <div class="footer">
-        © 2026 <b>Soufiane Ouhazza</b> — All Rights Reserved
-    </div>
-    """, unsafe_allow_html=True)
-
 
 def render_register():
     apply_theme()
-
     st.markdown(f"""
     <div class="main-header" style="background: linear-gradient(135deg, #27AE60, #004D98);">
         <h1>{T('register_title')}</h1>
@@ -976,9 +998,7 @@ def render_register():
             new_name = st.text_input(f"📝 {T('full_name')}", key="rg_name")
             new_pass = st.text_input(f"🔒 {T('password')}", type="password", key="rg_pass")
             confirm_pass = st.text_input(f"🔒 {T('confirm_password')}", type="password", key="rg_pass2")
-
-            submitted = st.form_submit_button(f"📝 {T('register_btn')}", use_container_width=True)
-            if submitted:
+            if st.form_submit_button(f"📝 {T('register_btn')}", use_container_width=True):
                 if not new_user or not new_pass:
                     st.error(T('name_required'))
                 elif new_pass != confirm_pass:
@@ -995,30 +1015,20 @@ def render_register():
             st.session_state.auth_page = "home"
             st.rerun()
 
-    st.markdown(f"""
-    <div class="footer">
-        © 2026 <b>Soufiane Ouhazza</b> — All Rights Reserved
-    </div>
-    """, unsafe_allow_html=True)
-
 
 def render_auth_page():
-    auth_page = st.session_state.auth_page
-    if auth_page == "home":
-        render_auth_home()
-    elif auth_page == "student_login":
-        render_student_login()
-    elif auth_page == "developer_login":
-        render_developer_login()
-    elif auth_page == "register":
-        render_register()
-    else:
-        render_auth_home()
+    p = st.session_state.auth_page
+    if p == "home": render_auth_home()
+    elif p == "student_login": render_student_login()
+    elif p == "developer_login": render_developer_login()
+    elif p == "register": render_register()
+    else: render_auth_home()
 
-# ============================================================================
-# 🏠 الرئيسية
+    # ============================================================================
+# الرئيسية
 # ============================================================================
 def render_dashboard():
+    username = st.session_state.username
     name = st.session_state.student_name or T('welcome')
     st.markdown(f"""
     <div class="main-header">
@@ -1027,12 +1037,35 @@ def render_dashboard():
     </div>
     """, unsafe_allow_html=True)
 
+    # المكافأة اليومية
+    if st.session_state.user_role == "student" and not st.session_state.get("daily_bonus_shown"):
+        bonus = check_daily_bonus(username)
+        if bonus > 0:
+            st.success(f"🎁 {T('daily_bonus')}: +{bonus} نقطة!")
+            st.balloons()
+        st.session_state.daily_bonus_shown = True
+
+    # الإحصائيات
+    stats = get_user_stats(username)
+    total_points = stats.get("total_points", 0)
+    level = stats.get("level", 1)
+    rank = get_rank(level)
+
     st.markdown(f"### {T('stats')}")
     c1, c2, c3, c4 = st.columns(4)
-    with c1: st.metric(f"🏆 {T('points')}", st.session_state.points)
-    with c2: st.metric(f"⭐ {T('level')}", st.session_state.level)
-    with c3: st.metric(f"📚 {T('subjects_count')}", len(SUBJECTS))
-    with c4: st.metric(f"✅ {T('progress')}", f"{get_progress_percent()}%")
+    with c1: st.metric(f"🏆 {T('total_points')}", total_points)
+    with c2: st.metric(f"⭐ {T('level')}", f"{level} — {rank}")
+    with c3: st.metric(f"📝 {T('quizzes_taken')}", stats.get("quizzes_taken", 0))
+    with c4: st.metric(f"💯 {T('perfect_scores')}", stats.get("perfect_scores", 0))
+
+    # شريط التقدم
+    progress = total_points % 100
+    st.progress(progress / 100, text=f"{T('level_progress')}: {progress}/100")
+
+    # ستريك
+    streak = stats.get("streak", 0)
+    if streak > 0:
+        st.info(f"🔥 {T('streak')}: {streak} يوم")
 
     st.markdown("---")
     st.markdown(f"### 📖 {T('choose_subject')}")
@@ -1043,7 +1076,7 @@ def render_dashboard():
             st.markdown(f"""
             <div class="custom-card" style="text-align:center; border-top: 4px solid {info['color']};">
                 <div style="font-size: 3em;">{info['icon']}</div>
-                <h3 style="margin: 10px 0;">{get_subject_name(key)}</h3>
+                <h3 style="margin: 10px 0;">{info['ar']}</h3>
             </div>
             """, unsafe_allow_html=True)
             if st.button(T('start_review'), key=f"subj_{key}", use_container_width=True):
@@ -1055,41 +1088,49 @@ def render_dashboard():
     st.info(T('tips'))
 
 # ============================================================================
-# 📚 الدروس
+# الدروس
 # ============================================================================
 def render_lessons():
     st.markdown(f"## 📚 {T('lessons_bank')}")
 
-    subject_keys = list(SUBJECTS.keys())
-    default_idx = subject_keys.index(st.session_state.selected_subject) if st.session_state.selected_subject else 0
-    selected = st.selectbox(
-        T('choose_lesson_subject'), subject_keys,
-        format_func=lambda k: f"{SUBJECTS[k]['icon']} {get_subject_name(k)}",
-        index=default_idx
-    )
-    st.session_state.selected_subject = selected
+    col1, col2 = st.columns([3, 1])
+    with col1:
+        search = st.text_input(T('search_placeholder'), key="lesson_search")
+    with col2:
+        subject_keys = ["all"] + list(SUBJECTS.keys())
+        selected_subject = st.selectbox(
+            T('choose_lesson_subject'), subject_keys,
+            format_func=lambda k: "🎯 كل المواد" if k == "all" else f"{SUBJECTS[k]['icon']} {SUBJECTS[k]['ar']}",
+            index=subject_keys.index(st.session_state.selected_subject) if st.session_state.selected_subject in subject_keys else 0
+        )
 
     st.markdown("---")
 
-    lessons = load_lessons(selected, st.session_state.language, owner="public")
+    subject_filter = None if selected_subject == "all" else selected_subject
+    lessons = load_lessons(subject_filter, None, owner="public", search=search or None)
 
     if not lessons:
         st.warning(T('no_lessons'))
         return
 
-    st.markdown(f"### {T('owner_public')}")
     for lesson in lessons:
         _render_lesson_card(lesson)
 
 
-def _render_lesson_card(lesson, is_personal=False):
-    with st.expander(f"📖 {lesson['title']}", expanded=False):
+def _render_lesson_card(lesson):
+    with st.expander(f"📖 {lesson['title']} — *{get_subject_name(lesson['subject'])}*", expanded=False):
+        # زر المفضلة
+        if st.session_state.user_role == "student":
+            is_fav = is_favorite(st.session_state.username, lesson['id'])
+            fav_label = T('remove_favorite') if is_fav else T('add_favorite')
+            if st.button(fav_label, key=f"fav_{lesson['id']}"):
+                toggle_favorite(st.session_state.username, lesson['id'])
+                st.rerun()
+
         if lesson.get('content'):
             st.markdown(lesson['content'])
-
         if lesson.get('image_url') and os.path.exists(lesson['image_url']):
             st.image(lesson['image_url'], use_container_width=True)
-
         if lesson.get('pdf_url'):
             st.markdown("#### 📄 PDF")
             render_pdf(lesson['pdf_url'])
@@ -1101,46 +1142,146 @@ def _render_lesson_card(lesson, is_personal=False):
             st.session_state.page = "quiz"
             st.session_state.quiz_state = {}
             st.session_state.quiz_finished = False
+            st.session_state.quick_review_mode = False
+            st.session_state.quiz_start_time = time.time()
             st.rerun()
 
 # ============================================================================
-# 📝 الاختبارات
+# الإحصائيات
 # ============================================================================
-def render_quiz():
-    st.markdown(f"## 📝 {T('smart_quizzes')}")
+def render_my_stats():
+    username = st.session_state.username
+    st.markdown(f"## 📊 {T('my_stats')}")
 
-    if not st.session_state.selected_lesson:
+    stats = get_user_stats(username)
+    level = stats.get("level", 1)
+    rank = get_rank(level)
+
+    c1, c2, c3, c4 = st.columns(4)
+    with c1: st.metric(f"🏆 {T('total_points')}", stats.get("total_points", 0))
+    with c2: st.metric(f"⭐ {T('rank')}", rank)
+    with c3: st.metric(f"📝 {T('quizzes_taken')}", stats.get("quizzes_taken", 0))
+    with c4: st.metric(f"🔥 {T('streak')}", f"{stats.get('streak', 0)} يوم")
+
+    st.markdown("---")
+
+    # إحصائيات المواد
+    st.markdown(f"### {T('subject_stats')}")
+    subject_stats = get_subject_stats(username)
+    if subject_stats:
+        for s in subject_stats:
+            subj_name = get_subject_name(s['subject']) if s['subject'] in SUBJECTS else s['subject']
+            icon = SUBJECTS.get(s['subject'], {}).get('icon', '📚')
+            with st.expander(f"{icon} {subj_name}"):
+                c1, c2, c3 = st.columns(3)
+                with c1: st.metric(T('attempts'), s['attempts'])
+                with c2: st.metric(T('avg_score'), f"{s['avg_percent']:.1f}%")
+                with c3: st.metric(T('best_score'), f"{s['best_percent']:.0f}%")
+    else:
+        st.info(T('no_history'))
+
+    st.markdown("---")
+
+    # آخر الاختبارات
+    st.markdown(f"### {T('recent_quizzes')}")
+    history = get_quiz_history(username, limit=10)
+    if history:
+        for h in history:
+            icon = "🏆" if h['percent'] >= 80 else "👍" if h['percent'] >= 50 else "📚"
+            st.markdown(f"{icon} **{h['lesson_title']}** — {h['score']}/{h['total']} ({h['percent']:.0f}%) — *{h['created_at'][:16]}*")
+    else:
+        st.info(T('no_history'))
+
+    # الإنجازات
+    st.markdown("---")
+    st.markdown(f"### {T('my_badges')}")
+    badges = get_user_badges(username)
+    if badges:
+        cols = st.columns(4)
+        for idx, b in enumerate(badges):
+            with cols[idx % 4]:
+                st.markdown(f"""
+                <div class="badge-card">
+                    <div style="font-size: 2.5em;">{b['icon']}</div>
+                    <h4>{b['name']}</h4>
+                    <p style="font-size: 0.85em; opacity: 0.9;">{b['desc']}</p>
+                </div>
+                """, unsafe_allow_html=True)
+    else:
+        st.info(T('no_badges'))
+
+# ============================================================================
+# المفضلة
+# ============================================================================
+def render_favorites():
+    st.markdown(f"## {T('my_favorites')}")
+    favs = get_favorites(st.session_state.username)
+    if not favs:
+        st.info(T('no_favorites'))
+        return
+    for lesson in favs:
+        _render_lesson_card(lesson)
+
+# ============================================================================
+# المراجعة السريعة
+# ============================================================================
+def render_quick_review():
+    st.markdown(f"## {T('quick_review_title')}")
+    st.caption(T('quick_review_desc'))
+
+    if not st.session_state.quick_review_mode:
         all_lessons = load_lessons(owner="public")
+        all_questions = []
+        for l in all_lessons:
+            qs = load_questions(l['id'])
+            for q in qs:
+                q['lesson_title'] = l['title']
+                q['subject'] = l['subject']
+                all_questions.append(q)
 
-        if not all_lessons:
-            st.warning(T('no_lessons_quiz'))
+        if len(all_questions) < 1:
+            st.warning("⚠️ ما كايناش أسئلة كافية")
             return
 
-        lesson_titles = {str(l['id']): f"{l['title']} ({get_subject_name(l['subject'])})" for l in all_lessons}
-        lesson_id = st.selectbox(T('choose_lesson'), list(lesson_titles.keys()),
-                                  format_func=lambda i: lesson_titles[i])
-
-        if st.button(T('start_quiz')):
-            st.session_state.selected_lesson = lesson_id
-            st.session_state.current_lesson_title = lesson_titles[lesson_id]
-            st.session_state.quiz_state = {}
+        st.info(f"📊 متوفر: {len(all_questions)} سؤال")
+        if st.button(T('start_quick'), use_container_width=True):
+            sample = random.sample(all_questions, min(10, len(all_questions)))
+            st.session_state.quick_review_mode = True
+            st.session_state.quiz_state = {"questions": sample, "answers": {}, "score": 0}
             st.session_state.quiz_finished = False
+            st.session_state.selected_lesson = "quick"
+            st.session_state.current_lesson_title = "⚡ مراجعة سريعة"
+            st.session_state.quiz_start_time = time.time()
             st.rerun()
         return
 
-    lesson_id = st.session_state.selected_lesson
-    questions = load_questions(lesson_id)
-
+    questions = st.session_state.quiz_state.get("questions", [])
     if not questions:
-        st.warning(T('no_questions'))
-        if st.button(T('back')):
-            st.session_state.selected_lesson = None
-            st.rerun()
-        return
+        st.session_state.quick_review_mode = False
+        st.rerun()
+
+    _render_quiz_ui(questions, "quick")# ============================================================================
+# واجهة الاختبار (مشتركة)
+# ============================================================================
+def _render_quiz_ui(questions, lesson_id):
+    username = st.session_state.username
+
+    # المؤقت
+    if st.session_state.quiz_start_time and not st.session_state.quiz_finished:
+        elapsed = time.time() - st.session_state.quiz_start_time
+        remaining = st.session_state.quiz_time_limit - elapsed
+
+        if remaining > 0:
+            mins = int(remaining // 60)
+            secs = int(remaining % 60)
+            st.warning(f"⏱️ {T('time_remaining')}: {mins:02d}:{secs:02d}")
+        else:
+            st.error(T('time_up'))
+            st.session_state.quiz_finished = True
 
     st.markdown(f"""
     <div class="custom-card">
-        <h3>📝 {T('quiz_of')} {st.session_state.get('current_lesson_title', '')}</h3>
+        <h3>📝 {st.session_state.get('current_lesson_title', '')}</h3>
         <p>{T('questions_count')}: {len(questions)} | {T('each_correct')}</p>
     </div>
     """, unsafe_allow_html=True)
@@ -1179,13 +1320,16 @@ def render_quiz():
         c1, c2 = st.columns(2)
         with c1:
             if st.button(T('retry'), use_container_width=True):
-                st.session_state.quiz_state = {}
+                st.session_state.quiz_state = {'answers': {}}
                 st.session_state.quiz_finished = False
+                st.session_state.quiz_start_time = time.time()
                 st.rerun()
         with c2:
             if st.button(T('choose_another'), use_container_width=True):
                 st.session_state.selected_lesson = None
                 st.session_state.quiz_finished = False
+                st.session_state.quick_review_mode = False
+                st.session_state.quiz_state = {}
                 st.rerun()
         return
 
@@ -1208,48 +1352,112 @@ def render_quiz():
             score = sum(1 for i, q in enumerate(questions) if answers.get(i) == q['correct'])
             st.session_state.quiz_state = {'answers': answers, 'score': score}
             st.session_state.quiz_finished = True
-            add_points(score * 10)
+
+            if st.session_state.user_role == "student":
+                subject = questions[0].get('subject', 'mixed') if questions else 'mixed'
+                save_quiz_result(username, lesson_id,
+                                st.session_state.current_lesson_title,
+                                subject, score, len(questions))
+                update_user_stats(username, points=score * 10, quiz_taken=True,
+                                perfect=(score == len(questions)), subject=subject)
             st.rerun()
 
+
 # ============================================================================
-# ⚙️ لوحة المطور
+# الاختبارات
+# ============================================================================
+def render_quiz():
+    st.markdown(f"## 📝 {T('smart_quizzes')}")
+
+    if not st.session_state.selected_lesson:
+        all_lessons = load_lessons(owner="public")
+        if not all_lessons:
+            st.warning(T('no_lessons_quiz'))
+            return
+
+        lesson_titles = {str(l['id']): f"{l['title']} ({get_subject_name(l['subject'])})" for l in all_lessons}
+        lesson_id = st.selectbox(T('choose_lesson'), list(lesson_titles.keys()),
+                                  format_func=lambda i: lesson_titles[i])
+
+        if st.button(T('start_quiz')):
+            st.session_state.selected_lesson = lesson_id
+            st.session_state.current_lesson_title = lesson_titles[lesson_id]
+            st.session_state.quiz_state = {}
+            st.session_state.quiz_finished = False
+            st.session_state.quick_review_mode = False
+            st.session_state.quiz_start_time = time.time()
+            st.rerun()
+        return
+
+    if st.session_state.quick_review_mode:
+        render_quick_review()
+        return
+
+    lesson_id = st.session_state.selected_lesson
+    questions = load_questions(lesson_id)
+
+    if not questions:
+        st.warning(T('no_questions'))
+        if st.button(T('back')):
+            st.session_state.selected_lesson = None
+            st.rerun()
+        return
+
+    _render_quiz_ui(questions, lesson_id)
+
+
+# ============================================================================
+# لوحة المطور
 # ============================================================================
 def render_developer_panel():
     if st.session_state.user_role != "developer":
-        st.error("🔒 هذه اللوحة محمية — للمطور فقط")
+        st.error("🔒 للمطور فقط")
         st.stop()
 
     st.markdown(f"## ⚙️ {T('developer_panel')}")
-    st.caption(f"👨‍💻 {T('dev_only_note')}")
 
+    # إحصائيات عامة
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("SELECT COUNT(*) FROM users WHERE role='student'")
+    total_students = c.fetchone()[0]
+    c.execute("SELECT COUNT(*) FROM lessons WHERE owner='public'")
+    total_lessons = c.fetchone()[0]
+    c.execute("SELECT COUNT(*) FROM questions")
+    total_questions = c.fetchone()[0]
+    c.execute("SELECT COUNT(*) FROM quiz_history")
+    total_attempts = c.fetchone()[0]
+    conn.close()
+
+    c1, c2, c3, c4 = st.columns(4)
+    with c1: st.metric("👥 التلاميذ", total_students)
+    with c2: st.metric("📚 الدروس", total_lessons)
+    with c3: st.metric("❓ الأسئلة", total_questions)
+    with c4: st.metric("📝 المحاولات", total_attempts)
+
+    st.markdown("---")
     tab1, tab2 = st.tabs([T('manage_lessons'), T('manage_questions')])
 
     with tab1:
         st.markdown(f"### {T('add_lesson')}")
-
         with st.form("add_lesson_form", clear_on_submit=True):
             c1, c2 = st.columns(2)
             with c1:
                 subject = st.selectbox(T('lesson_subject'), list(SUBJECTS.keys()),
-                                       format_func=lambda k: f"{SUBJECTS[k]['icon']} {get_subject_name(k)}")
+                                       format_func=lambda k: f"{SUBJECTS[k]['icon']} {SUBJECTS[k]['ar']}")
             with c2:
                 language = st.selectbox(T('lesson_language'), list(LANGUAGES.keys()),
                                         format_func=lambda k: LANGUAGES[k])
-
             title = st.text_input(T('lesson_title'))
-            content = st.text_area(f"{T('lesson_content_label')} {T('lesson_content_optional')}", height=150)
-
+            content = st.text_area(T('lesson_content_label'), height=150)
             c1, c2 = st.columns(2)
-            with c1:
-                image_file = st.file_uploader(T('lesson_image'), type=["png", "jpg", "jpeg", "webp"])
-            with c2:
-                pdf_file = st.file_uploader(T('lesson_pdf'), type=["pdf"])
+            with c1: image_file = st.file_uploader(T('lesson_image'), type=["png", "jpg", "jpeg", "webp"])
+            with c2: pdf_file = st.file_uploader(T('lesson_pdf'), type=["pdf"])
 
             if st.form_submit_button(T('save_lesson'), use_container_width=True):
                 if title and (content or image_file or pdf_file):
                     image_url = upload_file(image_file, "developer/images") if image_file else None
                     pdf_url = upload_file(pdf_file, "developer/pdfs") if pdf_file else None
-
                     ok, msg = add_lesson(subject, language, title, content or "", image_url, pdf_url, owner="public")
                     if ok:
                         st.success(T('lesson_saved'))
@@ -1261,37 +1469,28 @@ def render_developer_panel():
 
         st.markdown("---")
         st.markdown(f"### {T('manage_lessons')}")
-
-        found_any = False
-        for subj_key in SUBJECTS.keys():
-            for lang_key in LANGUAGES.keys():
-                lessons = load_lessons(subj_key, lang_key, owner="public")
-                if lessons:
-                    found_any = True
-                    st.markdown(f"**{get_subject_name(subj_key)} / {LANGUAGES[lang_key]}**")
-                    for lesson in lessons:
-                        c1, c2 = st.columns([5, 1])
-                        with c1:
-                            icons = ""
-                            if lesson.get('content'): icons += "📝"
-                            if lesson.get('image_url'): icons += "📷"
-                            if lesson.get('pdf_url'): icons += "📄"
-                            st.markdown(f"{icons} **{lesson['title']}**")
-                        with c2:
-                            if st.button("🗑️", key=f"del_lesson_{lesson['id']}"):
-                                if delete_lesson(lesson['id'], owner_filter="public"):
-                                    st.success(T('deleted'))
-                                    st.rerun()
-                    st.markdown("---")
-
-        if not found_any:
+        all_lessons = load_lessons(owner="public")
+        if all_lessons:
+            for lesson in all_lessons:
+                c1, c2 = st.columns([5, 1])
+                with c1:
+                    icons = ""
+                    if lesson.get('content'): icons += "📝"
+                    if lesson.get('image_url'): icons += "📷"
+                    if lesson.get('pdf_url'): icons += "📄"
+                    st.markdown(f"{icons} **{lesson['title']}** — {get_subject_name(lesson['subject'])}")
+                with c2:
+                    if st.button("🗑️", key=f"del_{lesson['id']}"):
+                        if delete_lesson(lesson['id'], owner_filter="public"):
+                            st.success(T('deleted'))
+                            st.rerun()
+        else:
             st.info(T('no_custom_lessons'))
 
     with tab2:
         st.markdown(f"### {T('add_question')}")
-
         all_lessons = load_lessons(owner="public")
-        lesson_options = {str(l['id']): f"[{get_subject_name(l['subject'])} / {LANGUAGES[l['language']]}] {l['title']}" for l in all_lessons}
+        lesson_options = {str(l['id']): f"[{get_subject_name(l['subject'])}] {l['title']}" for l in all_lessons}
 
         if not lesson_options:
             st.warning("⚠️ أضف درساً أولاً")
@@ -1308,7 +1507,6 @@ def render_developer_panel():
                 with c2:
                     opt_c = st.text_input(T('option_c'))
                     opt_d = st.text_input(T('option_d'))
-
                 correct = st.radio(T('correct_answer'), options=[0, 1, 2, 3],
                                     format_func=lambda i: f"{chr(65+i)}", horizontal=True)
                 explanation = st.text_input(T('explanation_text'))
@@ -1323,33 +1521,26 @@ def render_developer_panel():
                         else:
                             st.error(msg)
                     else:
-                        st.error("⚠️ املأ جميع الحقول")
+                        st.error("⚠️ املأ الحقول")
 
         st.markdown("---")
         st.markdown(f"### {T('manage_questions')}")
-
-        found_any_q = False
         for l in all_lessons:
             qs = load_questions(l['id'])
             if qs:
-                found_any_q = True
-                st.markdown(f"**📖 {lesson_options.get(str(l['id']), l['title'])}**")
+                st.markdown(f"**📖 {l['title']}**")
                 for q in qs:
                     c1, c2 = st.columns([5, 1])
                     with c1:
                         st.markdown(f"❓ {q['question']} — ✅ **{chr(65+q['correct'])}**")
                     with c2:
-                        if st.button("🗑️", key=f"del_q_{q['id']}"):
-                            if delete_question(q['id']):
-                                st.success(T('deleted'))
-                                st.rerun()
-                st.markdown("---")
+                        if st.button("🗑️", key=f"delq_{q['id']}"):
+                            delete_question(q['id'])
+                            st.rerun()
 
-        if not found_any_q:
-            st.info(T('no_custom_questions'))
 
 # ============================================================================
-# 🚀 التوجيه الرئيسي
+# التوجيه الرئيسي
 # ============================================================================
 if not st.session_state.authenticated:
     render_auth_page()
@@ -1363,7 +1554,6 @@ with st.sidebar:
     <div style="text-align:center; padding: 15px 0;">
         <h1 style="color:{theme_colors['accent']}; margin:0;">🎓 3AC</h1>
         <h2 style="margin:5px 0;">RevisioMaroc</h2>
-        <p style="opacity:0.7;">{T('app_name')}</p>
     </div>
     """, unsafe_allow_html=True)
 
@@ -1380,17 +1570,18 @@ with st.sidebar:
     </div>
     """, unsafe_allow_html=True)
 
-    st.markdown("---")
+    if role == "student":
+        stats = get_user_stats(st.session_state.username)
+        level = stats.get("level", 1)
+        rank = get_rank(level)
+        st.markdown(f"""
+        <div class="custom-card" style="text-align:center; padding: 12px;">
+            <p style="margin:0; font-size: 1.1em;">{rank}</p>
+            <p style="margin:5px 0; opacity: 0.8;">🏆 {stats.get('total_points', 0)} نقطة</p>
+        </div>
+        """, unsafe_allow_html=True)
 
-    st.markdown(f"### {T('language')}")
-    lang_keys = list(LANGUAGES.keys())
-    selected_lang = st.selectbox(T('choose_language'), lang_keys,
-                                  format_func=lambda k: LANGUAGES[k],
-                                  index=lang_keys.index(st.session_state.language),
-                                  label_visibility="collapsed")
-    if selected_lang != st.session_state.language:
-        st.session_state.language = selected_lang
-        st.rerun()
+    st.markdown("---")
 
     st.markdown(f"### {T('theme')}")
     theme_keys = list(THEMES.keys())
@@ -1408,6 +1599,7 @@ with st.sidebar:
         st.session_state.page = "dashboard"
         st.session_state.selected_subject = None
         st.session_state.selected_lesson = None
+        st.session_state.quick_review_mode = False
         st.rerun()
     if st.button(T('lessons'), use_container_width=True):
         st.session_state.page = "lessons"
@@ -1415,23 +1607,28 @@ with st.sidebar:
     if st.button(T('quizzes'), use_container_width=True):
         st.session_state.page = "quiz"
         st.session_state.selected_lesson = None
+        st.session_state.quick_review_mode = False
+        st.rerun()
+    if st.button(T('quick_review'), use_container_width=True):
+        st.session_state.page = "quick_review"
+        st.session_state.quick_review_mode = False
+        st.session_state.selected_lesson = None
         st.rerun()
 
-    if st.session_state.user_role == "developer":
+    if role == "student":
+        if st.button(T('favorites'), use_container_width=True):
+            st.session_state.page = "favorites"
+            st.rerun()
+        if st.button(T('my_stats'), use_container_width=True):
+            st.session_state.page = "my_stats"
+            st.rerun()
+
+    if role == "developer":
         if st.button(T('developer'), use_container_width=True):
             st.session_state.page = "developer"
             st.rerun()
 
     st.markdown("---")
-
-    if st.session_state.user_role in ["student", "guest"]:
-        st.markdown(f"### {T('your_progress')}")
-        c1, c2 = st.columns(2)
-        with c1: st.metric(T('points'), st.session_state.points)
-        with c2: st.metric(T('level'), st.session_state.level)
-        st.progress(get_progress_percent() / 100)
-        st.caption(f"{T('level_progress')}: {get_progress_percent()}%")
-        st.markdown("---")
 
     if st.button(T('logout'), use_container_width=True):
         for key in list(st.session_state.keys()):
@@ -1447,24 +1644,22 @@ with st.sidebar:
 page = st.session_state.page
 
 if page == "developer" and st.session_state.user_role != "developer":
-    st.error("🔒 هذه الصفحة محمية — للمطور فقط")
+    st.error("🔒 محمية")
     st.session_state.page = "dashboard"
     st.rerun()
 
-if page == "dashboard":
-    render_dashboard()
-elif page == "lessons":
-    render_lessons()
-elif page == "quiz":
-    render_quiz()
-elif page == "developer" and st.session_state.user_role == "developer":
-    render_developer_panel()
-else:
-    render_dashboard()
+if page == "dashboard": render_dashboard()
+elif page == "lessons": render_lessons()
+elif page == "quiz": render_quiz()
+elif page == "quick_review": render_quick_review()
+elif page == "favorites" and st.session_state.user_role == "student": render_favorites()
+elif page == "my_stats" and st.session_state.user_role == "student": render_my_stats()
+elif page == "developer" and st.session_state.user_role == "developer": render_developer_panel()
+else: render_dashboard()
 
 st.markdown(f"""
 <div class="footer">
-    © 2026 <b>Soufiane Ouhazza</b> — 3AC RevisioMaroc<br>
-    All Rights Reserved
+    © 2026 <b>Soufiane Ouhazza</b> — 3AC RevisioMaroc
 </div>
 """, unsafe_allow_html=True)
+    
