@@ -63,45 +63,20 @@ THEMES = {
 }
 
 BADGES = {
-    "first_quiz": "🎯 أول اختبار",
-    "perfect": "💯 العلامة الكاملة",
-    "5_quizzes": "🔥 مجتهد",
-    "10_quizzes": "💪 مثابر",
-    "25_quizzes": "🏃 عدّاء",
-    "50_quizzes": "🚀 صاروخ",
-    "100_quizzes": "🌟 أسطورة",
-    "level_5": "⭐ نجم",
-    "level_10": "🌟 نجم لامع",
-    "level_20": "👑 ملك",
-    "level_50": "🏆 أسطورة حية",
-    "all_subjects": "🎓 الموسوعي",
-    "streak_7": "🔥 أسبوع كامل",
-    "streak_30": "🌋 شهر كامل",
-    "speed_demon": "⚡ البرق",
-    "night_owl": "🦉 بومة الليل",
-    "early_bird": "🐦 طائر الصباح",
-    "perfectionist": "✨ المثالي",
-    "social_butterfly": "🦋 اجتماعي",
-    "note_master": "📝 سيد الملاحظات",
-    "flashcard_king": "🃏 ملك البطاقات",
-    "comeback": "🔄 العودة القوية",
-    "marathon": "🏃 ماراثوني",
-    "weekend_warrior": "⚔️ محارب الأسبوع",
-    "book_worm": "📚 قارئ نهم",
-    "downloader": "📥 محمّل",
-    "collector": "🗂️ جامع",
-    "explorer": "🧭 مستكشف",
+    "first_quiz": "🎯 أول اختبار", "perfect": "💯 العلامة الكاملة", "5_quizzes": "🔥 مجتهد",
+    "10_quizzes": "💪 مثابر", "25_quizzes": "🏃 عدّاء", "50_quizzes": "🚀 صاروخ",
+    "100_quizzes": "🌟 أسطورة", "level_5": "⭐ نجم", "level_10": "🌟 نجم لامع",
+    "level_20": "👑 ملك", "level_50": "🏆 أسطورة حية", "all_subjects": "🎓 الموسوعي",
+    "streak_7": "🔥 أسبوع كامل", "streak_30": "🌋 شهر كامل", "speed_demon": "⚡ البرق",
+    "night_owl": "🦉 بومة الليل", "early_bird": "🐦 طائر الصباح", "perfectionist": "✨ المثالي",
+    "social_butterfly": "🦋 اجتماعي", "note_master": "📝 سيد الملاحظات", "flashcard_king": "🃏 ملك البطاقات",
+    "comeback": "🔄 العودة القوية", "marathon": "🏃 ماراثوني", "weekend_warrior": "⚔️ محارب الأسبوع",
+    "book_worm": "📚 قارئ نهم", "downloader": "📥 محمّل", "collector": "🗂️ جامع", "explorer": "🧭 مستكشف",
 }
 
 RANKS = [
-    (50, "🌟 أسطورة حية"),
-    (35, "🏆 أسطورة"),
-    (20, "👑 خبير"),
-    (12, "🏅 متفوق"),
-    (8, "⭐ متميز"),
-    (5, "🎯 مجتهد"),
-    (3, "📖 متعلّم"),
-    (1, "🌱 مبتدئ"),
+    (50, "🌟 أسطورة حية"), (35, "🏆 أسطورة"), (20, "👑 خبير"), (12, "🏅 متفوق"),
+    (8, "⭐ متميز"), (5, "🎯 مجتهد"), (3, "📖 متعلّم"), (1, "🌱 مبتدئ"),
 ]
 
 # ============================================================
@@ -113,9 +88,56 @@ def get_db():
     conn.row_factory = sqlite3.Row
     return conn
 
+def table_columns(cursor, table):
+    """Get existing columns of a table"""
+    try:
+        cursor.execute(f"PRAGMA table_info({table})")
+        return [row[1] for row in cursor.fetchall()]
+    except Exception:
+        return []
+
+def table_exists(cursor, table):
+    cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name=?", (table,))
+    return cursor.fetchone() is not None
+
+def safe_add_column(cursor, table, column, definition):
+    """Add a column only if it doesn't exist"""
+    cols = table_columns(cursor, table)
+    if column not in cols:
+        try:
+            cursor.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
+            return True
+        except Exception as e:
+            print(f"Could not add {column} to {table}: {e}")
+    return False
+
+def safe_add_column_if_table(cursor, table, column, definition):
+    """Add column only if table exists and column doesn't"""
+    if table_exists(cursor, table):
+        safe_add_column(cursor, table, column, definition)
+
+def migrate_db(cursor):
+    """Migrate old DB to new schema by adding missing columns"""
+    # lessons: add level, updated_at
+    safe_add_column_if_table(cursor, "lessons", "level", "TEXT DEFAULT 'intermediate'")
+    safe_add_column_if_table(cursor, "lessons", "updated_at", "TIMESTAMP")
+    
+    # user_stats: add files_downloaded, files_read
+    safe_add_column_if_table(cursor, "user_stats", "files_downloaded", "INTEGER DEFAULT 0")
+    safe_add_column_if_table(cursor, "user_stats", "files_read", "INTEGER DEFAULT 0")
+    
+    # files: add tags, level, is_pinned, reads, updated_at
+    safe_add_column_if_table(cursor, "files", "tags", "TEXT DEFAULT ''")
+    safe_add_column_if_table(cursor, "files", "level", "TEXT DEFAULT 'intermediate'")
+    safe_add_column_if_table(cursor, "files", "is_pinned", "INTEGER DEFAULT 0")
+    safe_add_column_if_table(cursor, "files", "reads", "INTEGER DEFAULT 0")
+    safe_add_column_if_table(cursor, "files", "updated_at", "TIMESTAMP")
+
 def init_db():
     conn = get_db()
     c = conn.cursor()
+    
+    # === CREATE TABLES IF NOT EXIST ===
     c.execute("""CREATE TABLE IF NOT EXISTS users (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         username TEXT UNIQUE NOT NULL,
@@ -146,8 +168,7 @@ def init_db():
         option_c TEXT NOT NULL,
         option_d TEXT NOT NULL,
         correct_answer TEXT NOT NULL,
-        explanation TEXT,
-        FOREIGN KEY (lesson_id) REFERENCES lessons(id)
+        explanation TEXT
     )""")
     c.execute("""CREATE TABLE IF NOT EXISTS quiz_history (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -319,12 +340,31 @@ def init_db():
         file_id INTEGER,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )""")
-
+    
+    # === MIGRATE OLD DB ===
+    migrate_db(c)
+    
+    # === FIX NULL VALUES ===
+    try:
+        c.execute("UPDATE user_stats SET files_downloaded = 0 WHERE files_downloaded IS NULL")
+        c.execute("UPDATE user_stats SET files_read = 0 WHERE files_read IS NULL")
+        c.execute("UPDATE lessons SET level = 'intermediate' WHERE level IS NULL")
+        c.execute("UPDATE lessons SET updated_at = created_at WHERE updated_at IS NULL")
+        c.execute("UPDATE files SET tags = '' WHERE tags IS NULL")
+        c.execute("UPDATE files SET level = 'intermediate' WHERE level IS NULL")
+        c.execute("UPDATE files SET is_pinned = 0 WHERE is_pinned IS NULL")
+        c.execute("UPDATE files SET reads = 0 WHERE reads IS NULL")
+        c.execute("UPDATE files SET downloads = 0 WHERE downloads IS NULL")
+    except Exception as e:
+        print(f"Null fix warning: {e}")
+    
+    # === DEV USER ===
     dev_hash = hash_password("soufiane2030")
     c.execute("SELECT id FROM users WHERE username = ?", ("soufianeDEV",))
     if not c.fetchone():
         c.execute("INSERT INTO users (username, password_hash, role, full_name) VALUES (?, ?, ?, ?)",
                   ("soufianeDEV", dev_hash, "developer", "Soufiane Ouhazza"))
+    
     conn.commit()
     conn.close()
 
@@ -353,6 +393,20 @@ def authenticate(u, p):
     conn.close()
     return user
 
+def row_get(row, key, default=0):
+    """Safely get a value from a sqlite Row or dict"""
+    try:
+        if row is None:
+            return default
+        if hasattr(row, "keys"):
+            if key in row.keys():
+                val = row[key]
+                return default if val is None else val
+            return default
+        return row.get(key, default) if isinstance(row, dict) else default
+    except Exception:
+        return default
+
 def get_user_stats(u):
     conn = get_db()
     c = conn.cursor()
@@ -376,12 +430,14 @@ def update_user_stats(u, points=0, quiz=False, perfect=False, subject=None, down
         conn.commit()
         c.execute("SELECT * FROM user_stats WHERE username = ?", (u,))
         row = c.fetchone()
-    total_points = row["total_points"] + points
+    
+    total_points = (row["total_points"] or 0) + points
     level = total_points // 100 + 1
-    quizzes_taken = row["quizzes_taken"] + (1 if quiz else 0)
-    perfect_scores = row["perfect_scores"] + (1 if perfect else 0)
+    quizzes_taken = (row["quizzes_taken"] or 0) + (1 if quiz else 0)
+    perfect_scores = (row["perfect_scores"] or 0) + (1 if perfect else 0)
     files_downloaded = (row["files_downloaded"] or 0) + (1 if download else 0)
     files_read = (row["files_read"] or 0) + (1 if read else 0)
+    
     subjects = set()
     c.execute("SELECT DISTINCT subject FROM quiz_history WHERE username = ?", (u,))
     for r in c.fetchall():
@@ -390,6 +446,7 @@ def update_user_stats(u, points=0, quiz=False, perfect=False, subject=None, down
     if subject:
         subjects.add(subject)
     unique_subjects = len(subjects)
+    
     c.execute("""UPDATE user_stats SET total_points=?, level=?, quizzes_taken=?,
                  perfect_scores=?, unique_subjects=?, files_downloaded=?, files_read=? WHERE username=?""",
               (total_points, level, quizzes_taken, perfect_scores, unique_subjects, files_downloaded, files_read, u))
@@ -474,26 +531,35 @@ def check_badges(u):
         return
     current = json.loads(stats["badges"] or "[]")
     earned = set(current)
-    if stats["quizzes_taken"] >= 1: earned.add("first_quiz")
-    if stats["perfect_scores"] >= 1: earned.add("perfect")
-    if stats["quizzes_taken"] >= 5: earned.add("5_quizzes")
-    if stats["quizzes_taken"] >= 10: earned.add("10_quizzes")
-    if stats["quizzes_taken"] >= 25: earned.add("25_quizzes")
-    if stats["quizzes_taken"] >= 50: earned.add("50_quizzes")
-    if stats["quizzes_taken"] >= 100: earned.add("100_quizzes")
-    if stats["level"] >= 5: earned.add("level_5")
-    if stats["level"] >= 10: earned.add("level_10")
-    if stats["level"] >= 20: earned.add("level_20")
-    if stats["level"] >= 50: earned.add("level_50")
-    if stats["unique_subjects"] >= 7: earned.add("all_subjects")
-    if stats["streak"] >= 7: earned.add("streak_7")
-    if stats["streak"] >= 30: earned.add("streak_30")
+    quizzes_taken = stats["quizzes_taken"] or 0
+    perfect_scores = stats["perfect_scores"] or 0
+    level = stats["level"] or 1
+    unique_subjects = stats["unique_subjects"] or 0
+    streak = stats["streak"] or 0
+    files_downloaded = stats["files_downloaded"] or 0
+    files_read = stats["files_read"] or 0
+    
+    if quizzes_taken >= 1: earned.add("first_quiz")
+    if perfect_scores >= 1: earned.add("perfect")
+    if quizzes_taken >= 5: earned.add("5_quizzes")
+    if quizzes_taken >= 10: earned.add("10_quizzes")
+    if quizzes_taken >= 25: earned.add("25_quizzes")
+    if quizzes_taken >= 50: earned.add("50_quizzes")
+    if quizzes_taken >= 100: earned.add("100_quizzes")
+    if level >= 5: earned.add("level_5")
+    if level >= 10: earned.add("level_10")
+    if level >= 20: earned.add("level_20")
+    if level >= 50: earned.add("level_50")
+    if unique_subjects >= 7: earned.add("all_subjects")
+    if streak >= 7: earned.add("streak_7")
+    if streak >= 30: earned.add("streak_30")
     hour = datetime.now().hour
     if 0 <= hour < 5: earned.add("night_owl")
     if 5 <= hour < 7: earned.add("early_bird")
-    if (stats["files_downloaded"] or 0) >= 10: earned.add("downloader")
-    if (stats["files_read"] or 0) >= 25: earned.add("book_worm")
-    if (stats["files_read"] or 0) >= 50: earned.add("collector")
+    if files_downloaded >= 10: earned.add("downloader")
+    if files_read >= 25: earned.add("book_worm")
+    if files_read >= 50: earned.add("collector")
+    
     conn2 = get_db()
     c2 = conn2.cursor()
     c2.execute("SELECT COUNT(*) as cnt FROM notes WHERE username = ?", (u,))
@@ -505,6 +571,7 @@ def check_badges(u):
     c2.execute("SELECT COUNT(*) as cnt FROM quiz_history WHERE username = ? AND percent = 100", (u,))
     if c2.fetchone()["cnt"] >= 10: earned.add("perfectionist")
     conn2.close()
+    
     new_badges = earned - set(current)
     if new_badges:
         c.execute("UPDATE user_stats SET badges = ? WHERE username = ?", (json.dumps(list(earned)), u))
@@ -528,6 +595,8 @@ def add_notification(u, title, msg, icon="🔔"):
     conn.close()
 
 def notify_subject_followers(subject, title, msg, icon="📢"):
+    if not subject:
+        return
     conn = get_db()
     c = conn.cursor()
     c.execute("SELECT DISTINCT username FROM quiz_history WHERE subject = ?", (subject,))
@@ -629,7 +698,7 @@ def load_lessons(subject=None, language=None, owner=None, search=None, level=Non
         q += " AND language = ?"
         params.append(language)
     if level and level != "all":
-        q += " AND level = ?"
+        q += " AND (level = ? OR level IS NULL)"
         params.append(level)
     if owner:
         q += " AND owner = ?"
@@ -637,7 +706,7 @@ def load_lessons(subject=None, language=None, owner=None, search=None, level=Non
     if search:
         q += " AND (title LIKE ? OR content LIKE ?)"
         params.extend([f"%{search}%", f"%{search}%"])
-    q += " ORDER BY updated_at DESC"
+    q += " ORDER BY COALESCE(updated_at, created_at) DESC"
     c.execute(q, params)
     rows = c.fetchall()
     conn.close()
@@ -646,8 +715,8 @@ def load_lessons(subject=None, language=None, owner=None, search=None, level=Non
 def add_lesson(subject, language, title, content, image_url, pdf_url, owner, level="intermediate"):
     conn = get_db()
     c = conn.cursor()
-    c.execute("""INSERT INTO lessons (subject, language, title, content, image_url, pdf_url, owner, level)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+    c.execute("""INSERT INTO lessons (subject, language, title, content, image_url, pdf_url, owner, level, updated_at)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)""",
               (subject, language, title, content, image_url, pdf_url, owner, level))
     conn.commit()
     lid = c.lastrowid
@@ -906,8 +975,8 @@ def add_file_record(subject, category, title, description, file_path, file_name,
     conn = get_db()
     c = conn.cursor()
     c.execute("""INSERT INTO files (subject, category, title, description, file_path, file_name,
-                 file_size, file_type, owner, level, tags)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                 file_size, file_type, owner, level, tags, updated_at)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)""",
               (subject, category, title, description, file_path, file_name,
                file_size, file_type, owner, level, tags))
     conn.commit()
@@ -930,21 +999,21 @@ def get_files(subject=None, category=None, search=None, owner=None, level=None, 
         q += " AND category = ?"
         params.append(category)
     if level and level != "all":
-        q += " AND level = ?"
+        q += " AND (level = ? OR level IS NULL)"
         params.append(level)
     if owner:
         q += " AND owner = ?"
         params.append(owner)
     if tag:
-        q += " AND tags LIKE ?"
+        q += " AND COALESCE(tags, '') LIKE ?"
         params.append(f"%{tag}%")
     if search:
-        q += " AND (title LIKE ? OR description LIKE ? OR file_name LIKE ? OR tags LIKE ?)"
+        q += " AND (title LIKE ? OR COALESCE(description, '') LIKE ? OR file_name LIKE ? OR COALESCE(tags, '') LIKE ?)"
         params.extend([f"%{search}%"] * 4)
     if sort == "downloads":
-        q += " ORDER BY downloads DESC"
+        q += " ORDER BY COALESCE(downloads, 0) DESC"
     elif sort == "reads":
-        q += " ORDER BY reads DESC"
+        q += " ORDER BY COALESCE(reads, 0) DESC"
     elif sort == "title":
         q += " ORDER BY title ASC"
     else:
@@ -983,7 +1052,7 @@ def delete_file_record(fid):
 def increment_file_download(fid, username=None):
     conn = get_db()
     c = conn.cursor()
-    c.execute("UPDATE files SET downloads = downloads + 1 WHERE id = ?", (fid,))
+    c.execute("UPDATE files SET downloads = COALESCE(downloads, 0) + 1 WHERE id = ?", (fid,))
     c.execute("INSERT INTO download_log (username, file_id) VALUES (?, ?)", (username, fid))
     conn.commit()
     conn.close()
@@ -993,7 +1062,7 @@ def increment_file_download(fid, username=None):
 def increment_file_read(fid, username=None):
     conn = get_db()
     c = conn.cursor()
-    c.execute("UPDATE files SET reads = reads + 1 WHERE id = ?", (fid,))
+    c.execute("UPDATE files SET reads = COALESCE(reads, 0) + 1 WHERE id = ?", (fid,))
     conn.commit()
     conn.close()
     if username:
@@ -1002,7 +1071,7 @@ def increment_file_read(fid, username=None):
 def pin_file(fid):
     conn = get_db()
     c = conn.cursor()
-    c.execute("UPDATE files SET is_pinned = 1 - is_pinned WHERE id = ?", (fid,))
+    c.execute("UPDATE files SET is_pinned = 1 - COALESCE(is_pinned, 0) WHERE id = ?", (fid,))
     conn.commit()
     conn.close()
 
@@ -1065,13 +1134,13 @@ def get_lesson_files(lesson_id, category=None):
         c.execute("""SELECT f.*, lf.is_pinned as link_pinned FROM files f
                      JOIN lesson_files lf ON f.id = lf.file_id
                      WHERE lf.lesson_id = ? AND f.category = ?
-                     ORDER BY lf.is_pinned DESC, f.is_pinned DESC, f.created_at DESC""",
+                     ORDER BY lf.is_pinned DESC, COALESCE(f.is_pinned, 0) DESC, f.created_at DESC""",
                   (lesson_id, category))
     else:
         c.execute("""SELECT f.*, lf.is_pinned as link_pinned FROM files f
                      JOIN lesson_files lf ON f.id = lf.file_id
                      WHERE lf.lesson_id = ?
-                     ORDER BY lf.is_pinned DESC, f.is_pinned DESC, f.created_at DESC""",
+                     ORDER BY lf.is_pinned DESC, COALESCE(f.is_pinned, 0) DESC, f.created_at DESC""",
                   (lesson_id,))
     rows = c.fetchall()
     conn.close()
@@ -1090,7 +1159,7 @@ def get_lessons_using_file(file_id):
 def pin_lesson_file(lesson_id, file_id):
     conn = get_db()
     c = conn.cursor()
-    c.execute("UPDATE lesson_files SET is_pinned = 1 - is_pinned WHERE lesson_id = ? AND file_id = ?",
+    c.execute("UPDATE lesson_files SET is_pinned = 1 - COALESCE(is_pinned, 0) WHERE lesson_id = ? AND file_id = ?",
               (lesson_id, file_id))
     conn.commit()
     conn.close()
@@ -1215,13 +1284,24 @@ def search_all(query):
     c = conn.cursor()
     like = f"%{query}%"
     results = {"lessons": [], "files": [], "collections": []}
-    c.execute("SELECT * FROM lessons WHERE title LIKE ? OR content LIKE ? LIMIT 20", (like, like))
-    results["lessons"] = [dict(r) for r in c.fetchall()]
-    c.execute("SELECT * FROM files WHERE title LIKE ? OR description LIKE ? OR tags LIKE ? LIMIT 20",
-              (like, like, like))
-    results["files"] = [dict(r) for r in c.fetchall()]
-    c.execute("SELECT * FROM collections WHERE title LIKE ? OR description LIKE ? LIMIT 10", (like, like))
-    results["collections"] = [dict(r) for r in c.fetchall()]
+    try:
+        c.execute("SELECT * FROM lessons WHERE title LIKE ? OR COALESCE(content, '') LIKE ? LIMIT 20", (like, like))
+        results["lessons"] = [dict(r) for r in c.fetchall()]
+    except Exception:
+        results["lessons"] = []
+    try:
+        c.execute("""SELECT * FROM files
+                     WHERE title LIKE ? OR COALESCE(description, '') LIKE ? OR COALESCE(tags, '') LIKE ? LIMIT 20""",
+                  (like, like, like))
+        results["files"] = [dict(r) for r in c.fetchall()]
+    except Exception:
+        results["files"] = []
+    try:
+        c.execute("SELECT * FROM collections WHERE title LIKE ? OR COALESCE(description, '') LIKE ? LIMIT 10",
+                  (like, like))
+        results["collections"] = [dict(r) for r in c.fetchall()]
+    except Exception:
+        results["collections"] = []
     conn.close()
     return results
 
@@ -1230,6 +1310,8 @@ def search_all(query):
 # ============================================================
 
 def format_size(size):
+    if not size:
+        return "0 B"
     if size < 1024:
         return f"{size} B"
     elif size < 1024 * 1024:
@@ -1279,14 +1361,12 @@ def build_lesson_zip(lesson_id):
     return buf.getvalue()
 
 def is_arabic_text(text):
-    """Check if text contains Arabic characters to decide direction"""
     if not text:
         return False
     arabic_pattern = re.compile(r'[\u0600-\u06FF\u0750-\u077F]')
     return bool(arabic_pattern.search(text))
 
 def smart_text(text):
-    """Render text with correct direction based on content"""
     if not text:
         return
     if is_arabic_text(text):
@@ -1294,22 +1374,13 @@ def smart_text(text):
     else:
         st.markdown(f'<div style="direction: ltr; text-align: left;">{text}</div>', unsafe_allow_html=True)
 
-def smart_markdown(text):
-    """Return text with proper HTML direction wrapper"""
-    if not text:
-        return ""
-    if is_arabic_text(text):
-        return f'<div style="direction: rtl; text-align: right; unicode-bidi: embed;">{text}</div>'
-    else:
-        return f'<div style="direction: ltr; text-align: left; unicode-bidi: embed;">{text}</div>'
-
 # ============================================================
 # THEME
 # ============================================================
 
 def apply_theme():
     theme_key = st.session_state.get("theme", "fcb")
-    t = THEMES[theme_key]
+    t = THEMES.get(theme_key, THEMES["fcb"])
     css = f"""
     <style>
     @import url('https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;900&display=swap');
@@ -1393,8 +1464,6 @@ def apply_theme():
     .coll-card {{ background: linear-gradient(135deg, {t['card']}, {t['secondary']}); border: 2px solid {t['accent']}; border-radius: 16px; padding: 1rem; margin: 0.5rem 0; }}
     .mode-reader {{ background: #FAF3E0; color: #2C2C2C; padding: 2rem; border-radius: 12px; line-height: 2; direction: rtl; }}
     .mode-night {{ background: #0F0F1A; color: #C8C8D4; padding: 2rem; border-radius: 12px; line-height: 2; direction: rtl; }}
-    /* auto direction for content */
-    .auto-dir {{ unicode-bidi: plaintext; }}
     </style>
     """
     st.markdown(css, unsafe_allow_html=True)
@@ -1403,7 +1472,7 @@ def footer():
     st.markdown('<div class="footer">© 2026 Soufiane Ouhazza — 3AC RevisioMaroc</div>', unsafe_allow_html=True)
 
 # ============================================================
-# AUTH PAGES
+# AUTH
 # ============================================================
 
 def render_auth_home():
@@ -1533,13 +1602,14 @@ def render_dashboard():
     u = st.session_state.username
     stats = get_user_stats(u)
     st.markdown(f'<div class="header-banner"><h1>مرحباً {st.session_state.full_name or u} 👋</h1><p>لنواصل المراجعة!</p></div>', unsafe_allow_html=True)
-    level = stats["level"] if stats else 1
-    points = stats["total_points"] if stats else 0
+    level = row_get(stats, "level", 1)
+    points = row_get(stats, "total_points", 0)
+    quizzes = row_get(stats, "quizzes_taken", 0)
     rank = get_rank(level)
     c1, c2, c3, c4 = st.columns(4)
     with c1: st.markdown(f'<div class="stat-box"><div class="stat-number">{points}</div><div>النقاط</div></div>', unsafe_allow_html=True)
     with c2: st.markdown(f'<div class="stat-box"><div class="stat-number">{level}</div><div>المستوى</div></div>', unsafe_allow_html=True)
-    with c3: st.markdown(f'<div class="stat-box"><div class="stat-number">{stats["quizzes_taken"] if stats else 0}</div><div>الاختبارات</div></div>', unsafe_allow_html=True)
+    with c3: st.markdown(f'<div class="stat-box"><div class="stat-number">{quizzes}</div><div>الاختبارات</div></div>', unsafe_allow_html=True)
     with c4: st.markdown(f'<div class="stat-box"><div class="stat-number">{rank.split()[0]}</div><div>{rank}</div></div>', unsafe_allow_html=True)
     st.progress((points % 100) / 100, text=f"المستوى {level + 1}: {points % 100}/100")
     st.markdown("### 🔍 بحث ذكي شامل")
@@ -1580,13 +1650,13 @@ def render_dashboard():
         for f in recent:
             subj = SUBJECTS.get(f["subject"], {"name": f["subject"] or "عام", "icon": "📄"})
             icon = get_file_icon(f["file_type"], f["file_name"])
-            st.markdown(f'<div class="file-card"><span class="file-icon">{icon}</span><b>{f["title"]}</b> <span class="file-meta">— {subj["icon"]} {subj["name"]} • {format_size(f["file_size"])} • ⬇️ {f["downloads"]}</span></div>', unsafe_allow_html=True)
+            st.markdown(f'<div class="file-card"><span class="file-icon">{icon}</span><b>{f["title"]}</b> <span class="file-meta">— {subj["icon"]} {subj["name"]} • {format_size(f["file_size"])} • ⬇️ {f["downloads"] or 0}</span></div>', unsafe_allow_html=True)
     else:
         st.info("لا توجد ملفات")
     footer()
 
 # ============================================================
-# SEARCH RESULTS
+# SEARCH
 # ============================================================
 
 def render_search_results():
@@ -1600,7 +1670,7 @@ def render_search_results():
     tabs = st.tabs([f"📖 الدروس ({len(results['lessons'])})", f"📂 الملفات ({len(results['files'])})", f"📦 الحزم ({len(results['collections'])})"])
     with tabs[0]:
         for l in results["lessons"]:
-            subj = SUBJECTS.get(l["subject"], {"name": l["subject"], "icon": "📖"})
+            subj = SUBJECTS.get(l.get("subject", ""), {"name": l.get("subject", ""), "icon": "📖"})
             st.markdown(f"**{subj['icon']} {l['title']}** — {subj['name']}")
             if st.button(f"فتح الدرس", key=f"srch_l_{l['id']}"):
                 st.session_state.view_lesson_id = l["id"]
@@ -1608,17 +1678,17 @@ def render_search_results():
                 st.rerun()
     with tabs[1]:
         for f in results["files"]:
-            icon = get_file_icon(f["file_type"], f["file_name"])
-            st.markdown(f"**{icon} {f['title']}** — {format_size(f['file_size'])}")
+            icon = get_file_icon(f.get("file_type"), f.get("file_name"))
+            st.markdown(f"**{icon} {f['title']}** — {format_size(f.get('file_size', 0))}")
             if st.button(f"عرض الملف", key=f"srch_f_{f['id']}"):
                 st.session_state.view_file_id = f["id"]
                 st.session_state.page = "file_view"
                 st.rerun()
     with tabs[2]:
-        for c in results["collections"]:
-            st.markdown(f"**{c['icon']} {c['title']}**")
-            if st.button(f"عرض الحزمة", key=f"srch_c_{c['id']}"):
-                st.session_state.view_collection_id = c["id"]
+        for cl in results["collections"]:
+            st.markdown(f"**{cl.get('icon', '📦')} {cl['title']}**")
+            if st.button(f"عرض الحزمة", key=f"srch_c_{cl['id']}"):
+                st.session_state.view_collection_id = cl["id"]
                 st.session_state.page = "collection_view"
                 st.rerun()
     footer()
@@ -1650,9 +1720,11 @@ def render_lessons():
     for lesson in lessons:
         subj = SUBJECTS.get(lesson["subject"], {"name": lesson["subject"], "icon": "📖"})
         files_count = len(get_lesson_files(lesson["id"]))
+        lvl = lesson["level"] if "level" in lesson.keys() and lesson["level"] else "intermediate"
+        upd = lesson["updated_at"] if "updated_at" in lesson.keys() and lesson["updated_at"] else lesson["created_at"]
         st.markdown(f"""<div class="card">
             <b style="font-size:1.2rem;">{subj['icon']} {lesson['title']}</b><br>
-            <span class="file-meta">{subj['name']} • {LEVELS.get(lesson['level'], 'متوسط')} • {lesson['language'].upper()} • 📎 {files_count} ملف • 📅 {lesson['updated_at'][:10]}</span>
+            <span class="file-meta">{subj['name']} • {LEVELS.get(lvl, 'متوسط')} • {lesson['language'].upper()} • 📎 {files_count} ملف • 📅 {upd[:10] if upd else ''}</span>
         </div>""", unsafe_allow_html=True)
         if st.button("فتح الدرس", key=f"open_lesson_{lesson['id']}", use_container_width=True):
             st.session_state.view_lesson_id = lesson["id"]
@@ -1664,21 +1736,20 @@ def render_lessons():
 def render_lesson_view():
     lid = st.session_state.get("view_lesson_id")
     if not lid:
-        st.error("لم يتم اختيار درس")
-        footer(); return
+        st.error("لم يتم اختيار درس"); footer(); return
     conn = get_db()
     c = conn.cursor()
     c.execute("SELECT * FROM lessons WHERE id = ?", (lid,))
     lesson = c.fetchone()
     conn.close()
     if not lesson:
-        st.error("الدرس غير موجود")
-        footer(); return
+        st.error("الدرس غير موجود"); footer(); return
     subj = SUBJECTS.get(lesson["subject"], {"name": lesson["subject"], "icon": "📖"})
     fav = is_favorite(st.session_state.username, lid)
+    lvl = lesson["level"] if "level" in lesson.keys() and lesson["level"] else "intermediate"
     c1, c2 = st.columns([5, 1])
     with c1:
-        st.markdown(f'<div class="header-banner"><h1>{subj["icon"]} {lesson["title"]}</h1><p>{subj["name"]} • {LEVELS.get(lesson["level"], "متوسط")}</p></div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="header-banner"><h1>{subj["icon"]} {lesson["title"]}</h1><p>{subj["name"]} • {LEVELS.get(lvl, "متوسط")}</p></div>', unsafe_allow_html=True)
     with c2:
         if st.button("❤️" if fav else "🤍", key=f"fav_v_{lid}"):
             toggle_favorite(st.session_state.username, lid); st.rerun()
@@ -1747,12 +1818,15 @@ def _render_lesson_files_section(lid, category):
         return
     for f in files:
         icon = get_file_icon(f["file_type"], f["file_name"])
-        pinned = f.get("link_pinned", 0) if "link_pinned" in f.keys() else 0
-        pin_html = '<span class="pin-badge">📌 مثبت</span>' if pinned or f["is_pinned"] else ""
+        try:
+            pinned = f["link_pinned"] if "link_pinned" in f.keys() else 0
+        except Exception:
+            pinned = 0
+        pin_html = '<span class="pin-badge">📌 مثبت</span>' if pinned or (f["is_pinned"] if "is_pinned" in f.keys() else 0) else ""
         st.markdown(f"""<div class="file-card">
             <span class="file-icon">{icon}</span>
             <b>{f['title']}</b> {pin_html}<br>
-            <span class="file-meta">{format_size(f['file_size'])} • 👁️ {f['reads']} • ⬇️ {f['downloads']} • 📅 {f['created_at'][:10]}</span>
+            <span class="file-meta">{format_size(f['file_size'])} • 👁️ {f['reads'] or 0} • ⬇️ {f['downloads'] or 0} • 📅 {f['created_at'][:10] if f['created_at'] else ''}</span>
         </div>""", unsafe_allow_html=True)
         c1, c2, c3, c4 = st.columns(4)
         with c1:
@@ -1930,12 +2004,13 @@ def render_files():
         for f in files_list:
             subj = SUBJECTS.get(f["subject"], {"name": f["subject"] or "عام", "icon": "📄"})
             icon = get_file_icon(f["file_type"], f["file_name"])
-            tags_html = "".join([f'<span class="tag-chip">{t.strip()}</span>' for t in (f["tags"] or "").split(",") if t.strip()])
-            pin = '<span class="pin-badge">📌</span>' if f["is_pinned"] else ""
+            tags_val = f["tags"] if "tags" in f.keys() and f["tags"] else ""
+            tags_html = "".join([f'<span class="tag-chip">{t.strip()}</span>' for t in tags_val.split(",") if t.strip()])
+            pin = '<span class="pin-badge">📌</span>' if (f["is_pinned"] if "is_pinned" in f.keys() else 0) else ""
             st.markdown(f"""<div class="file-card">
                 <span class="file-icon">{icon}</span>
                 <b>{f['title']}</b> {pin}<br>
-                <span class="file-meta">{subj['icon']} {subj['name']} • {format_size(f['file_size'])} • 👁️ {f['reads']} • ⬇️ {f['downloads']}</span>
+                <span class="file-meta">{subj['icon']} {subj['name']} • {format_size(f['file_size'])} • 👁️ {f['reads'] or 0} • ⬇️ {f['downloads'] or 0}</span>
                 {tags_html}
             </div>""", unsafe_allow_html=True)
             c1, c2, c3 = st.columns(3)
@@ -2189,7 +2264,7 @@ def render_quick_review():
     footer()
 
 # ============================================================
-# DAILY CHALLENGE
+# DAILY
 # ============================================================
 
 def get_daily_challenge():
@@ -2380,7 +2455,7 @@ def render_leaderboard():
     footer()
 
 # ============================================================
-# WEEKLY REPORT
+# WEEKLY
 # ============================================================
 
 def render_progress_chart(u):
@@ -2442,20 +2517,21 @@ def render_achievement_tracker():
     stats = get_user_stats(st.session_state.username)
     if not stats: return
     prog = [
-        ("أول اختبار", stats["quizzes_taken"], 1),
-        ("5 اختبارات", stats["quizzes_taken"], 5),
-        ("10 اختبارات", stats["quizzes_taken"], 10),
-        ("25 اختبار", stats["quizzes_taken"], 25),
-        ("50 اختبار", stats["quizzes_taken"], 50),
-        ("المستوى 5", stats["level"], 5),
-        ("المستوى 10", stats["level"], 10),
-        ("المستوى 20", stats["level"], 20),
-        ("7 مواد", stats["unique_subjects"], 7),
-        ("سلسلة 7 أيام", stats["streak"], 7),
-        ("10 تحميلات", stats["files_downloaded"] or 0, 10),
-        ("25 قراءة", stats["files_read"] or 0, 25),
+        ("أول اختبار", row_get(stats, "quizzes_taken"), 1),
+        ("5 اختبارات", row_get(stats, "quizzes_taken"), 5),
+        ("10 اختبارات", row_get(stats, "quizzes_taken"), 10),
+        ("25 اختبار", row_get(stats, "quizzes_taken"), 25),
+        ("50 اختبار", row_get(stats, "quizzes_taken"), 50),
+        ("المستوى 5", row_get(stats, "level", 1), 5),
+        ("المستوى 10", row_get(stats, "level", 1), 10),
+        ("المستوى 20", row_get(stats, "level", 1), 20),
+        ("7 مواد", row_get(stats, "unique_subjects"), 7),
+        ("سلسلة 7 أيام", row_get(stats, "streak"), 7),
+        ("10 تحميلات", row_get(stats, "files_downloaded"), 10),
+        ("25 قراءة", row_get(stats, "files_read"), 25),
     ]
     for name, cur, tgt in prog:
+        cur = cur or 0
         pct = min(cur / tgt, 1.0) if tgt else 0
         st.markdown(f"**{name}** — {min(cur, tgt)}/{tgt}")
         st.progress(pct)
@@ -2465,12 +2541,12 @@ def render_my_stats():
     stats = get_user_stats(st.session_state.username)
     if stats:
         c1, c2, c3, c4, c5 = st.columns(5)
-        with c1: st.metric("النقاط", stats["total_points"])
-        with c2: st.metric("المستوى", stats["level"])
-        with c3: st.metric("الاختبارات", stats["quizzes_taken"])
-        with c4: st.metric("تحميلات", stats["files_downloaded"] or 0)
-        with c5: st.metric("قراءات", stats["files_read"] or 0)
-        st.markdown(f"**اللقب:** {get_rank(stats['level'])} — **السلسلة:** {stats['streak']} يوم")
+        with c1: st.metric("النقاط", row_get(stats, "total_points"))
+        with c2: st.metric("المستوى", row_get(stats, "level", 1))
+        with c3: st.metric("الاختبارات", row_get(stats, "quizzes_taken"))
+        with c4: st.metric("تحميلات", row_get(stats, "files_downloaded"))
+        with c5: st.metric("قراءات", row_get(stats, "files_read"))
+        st.markdown(f"**اللقب:** {get_rank(row_get(stats, 'level', 1))} — **السلسلة:** {row_get(stats, 'streak')} يوم")
     render_achievement_tracker()
     st.markdown("### 🏅 الشارات")
     earned = get_user_badges(st.session_state.username)
@@ -2505,7 +2581,7 @@ def render_favorites():
     footer()
 
 # ============================================================
-# DEVELOPER PANEL
+# DEVELOPER
 # ============================================================
 
 def render_developer_panel():
@@ -2532,13 +2608,8 @@ def render_developer_panel():
             subj = SUBJECTS.get(l["subject"], {"icon": "📖"})
             with st.expander(f"{subj['icon']} {l['title']}"):
                 smart_text(l["content"])
-                c1, c2 = st.columns(2)
-                with c1:
-                    if st.button("🔗 ربط ملف", key=f"link_{l['id']}"):
-                        st.info("انتقل لتبويب الملفات")
-                with c2:
-                    if st.button("🗑️ حذف", key=f"del_les_{l['id']}"):
-                        delete_lesson(l["id"]); st.rerun()
+                if st.button("🗑️ حذف", key=f"del_les_{l['id']}"):
+                    delete_lesson(l["id"]); st.rerun()
     with tabs[1]:
         with st.expander("➕ إضافة سؤال"):
             lessons = load_lessons()
@@ -2590,8 +2661,8 @@ def render_developer_panel():
             subj = SUBJECTS.get(f["subject"], {"icon": "📄"})
             icon = get_file_icon(f["file_type"], f["file_name"])
             with st.expander(f"{icon} {f['title']} — {subj['name']}"):
-                st.write(f"**النوع:** {f['category']} — **المستوى:** {f['level']}")
-                st.write(f"**الحجم:** {format_size(f['file_size'])} — **تحميلات:** {f['downloads']} — **قراءات:** {f['reads']}")
+                st.write(f"**النوع:** {f['category']} — **المستوى:** {f['level'] or 'intermediate'}")
+                st.write(f"**الحجم:** {format_size(f['file_size'])} — **تحميلات:** {f['downloads'] or 0} — **قراءات:** {f['reads'] or 0}")
                 st.markdown("**🔗 ربط بدرس:**")
                 lessons = load_lessons()
                 if lessons:
@@ -2660,7 +2731,7 @@ def render_developer_panel():
             st.markdown(f"- **{cat['category']}**: {cat['cnt']}")
         st.markdown("### 🔥 الأكثر تحميلاً")
         for f in get_files(sort="downloads")[:5]:
-            st.markdown(f"- {f['title']} — {f['downloads']} تحميل")
+            st.markdown(f"- {f['title']} — {f['downloads'] or 0} تحميل")
     footer()
 
 # ============================================================
@@ -2672,37 +2743,70 @@ def render_sidebar():
         st.markdown(f"### 👤 {st.session_state.full_name or st.session_state.username}")
         stats = get_user_stats(st.session_state.username)
         if stats:
-            st.markdown(f"**{get_rank(stats['level'])}** — L{stats['level']}")
-            st.progress((stats["total_points"] % 100) / 100)
-        theme_keys = list(THEMES.keys())
-        theme_names = [THEMES[k]["name"] for k in theme_keys]
-        cur = st.session_state.get("theme", "fcb")
-        idx = theme_keys.index(cur) if cur in theme_keys else 0
-        sel = st.selectbox("🎨 الثيم", theme_names, index=idx)
-        st.session_state.theme = theme_keys[theme_names.index(sel)]
+            lvl = row_get(stats, "level", 1)
+            pts = row_get(stats, "total_points", 0)
+            st.markdown(f"**{get_rank(lvl)}** — L{lvl}")
+            st.progress((pts % 100) / 100)
+        
+        with st.expander("🎨 الثيم والإعدادات", expanded=False):
+            theme_keys = list(THEMES.keys())
+            theme_names = [THEMES[k]["name"] for k in theme_keys]
+            cur = st.session_state.get("theme", "fcb")
+            idx = theme_keys.index(cur) if cur in theme_keys else 0
+            sel = st.selectbox("الثيم", theme_names, index=idx, key="theme_select")
+            st.session_state.theme = theme_keys[theme_names.index(sel)]
+        
         st.divider()
-        pages = [
-            ("dashboard", "🏠", "الرئيسية"),
-            ("lessons", "📖", "الدروس"),
-            ("files", "📂", "الملفات"),
-            ("collections", "📦", "الحزم"),
-            ("daily_challenge", "🎯", "التحدي اليومي"),
-            ("quick_review", "⚡", "مراجعة سريعة"),
-            ("pomodoro", "⏱️", "مؤقت المراجعة"),
-            ("flashcards", "🃏", "بطاقات"),
-            ("study_plan", "📅", "خطة الدراسة"),
-            ("friends", "👥", "الأصدقاء"),
-            ("leaderboard", "🏆", "المتصدرون"),
-            ("weekly_report", "📊", "التقرير الأسبوعي"),
-            ("notifications", "🔔", "الإشعارات"),
-            ("my_stats", "📈", "إحصائياتي"),
-            ("favorites", "❤️", "المفضلة"),
-        ]
+        
+        # Group 1: Learning content
+        with st.expander("📖 المحتوى التعليمي", expanded=True):
+            for key, icon, label in [
+                ("dashboard", "🏠", "الرئيسية"),
+                ("lessons", "📖", "الدروس"),
+                ("files", "📂", "الملفات"),
+                ("collections", "📦", "الحزم"),
+            ]:
+                if st.button(f"{icon} {label}", key=f"nav_{key}", use_container_width=True):
+                    st.session_state.page = key; st.rerun()
+        
+        # Group 2: Learning
+        with st.expander("🎓 التعلّم والمراجعة", expanded=False):
+            for key, icon, label in [
+                ("daily_challenge", "🎯", "التحدي اليومي"),
+                ("quick_review", "⚡", "مراجعة سريعة"),
+                ("pomodoro", "⏱️", "مؤقت المراجعة"),
+                ("flashcards", "🃏", "بطاقات"),
+            ]:
+                if st.button(f"{icon} {label}", key=f"nav_{key}", use_container_width=True):
+                    st.session_state.page = key; st.rerun()
+        
+        # Group 3: Tracking
+        with st.expander("📊 المتابعة", expanded=False):
+            for key, icon, label in [
+                ("study_plan", "📅", "خطة الدراسة"),
+                ("leaderboard", "🏆", "المتصدرون"),
+                ("weekly_report", "📊", "التقرير الأسبوعي"),
+                ("my_stats", "📈", "إحصائياتي"),
+            ]:
+                if st.button(f"{icon} {label}", key=f"nav_{key}", use_container_width=True):
+                    st.session_state.page = key; st.rerun()
+        
+        # Group 4: Social
+        with st.expander("👤 الاجتماعي", expanded=False):
+            for key, icon, label in [
+                ("friends", "👥", "الأصدقاء"),
+                ("notifications", "🔔", "الإشعارات"),
+                ("favorites", "❤️", "المفضلة"),
+            ]:
+                if st.button(f"{icon} {label}", key=f"nav_{key}", use_container_width=True):
+                    st.session_state.page = key; st.rerun()
+        
+        # Group 5: Dev
         if st.session_state.role == "developer":
-            pages.append(("developer_panel", "🛠️", "لوحة المطور"))
-        for key, icon, label in pages:
-            if st.button(f"{icon} {label}", key=f"nav_{key}", use_container_width=True):
-                st.session_state.page = key; st.rerun()
+            with st.expander("🛠️ الإدارة", expanded=False):
+                if st.button("🛠️ لوحة المطور", key="nav_developer_panel", use_container_width=True):
+                    st.session_state.page = "developer_panel"; st.rerun()
+        
         st.divider()
         unread = get_notifications(st.session_state.username, unread=True)
         if unread:
