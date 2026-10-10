@@ -6,24 +6,9 @@ import base64
 import random
 import time
 import json
-import datetime
-from pathlib import Path
-import re
-import io
-import html
-# ============================================================
-# 3AC RevisioMaroc — Application éducative complète
-# ============================================================
-import streamlit as st
-import hashlib
-import sqlite3
-import os
-import base64
-import random
-import time
-import json
 import math
 import re
+import shutil
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -34,6 +19,12 @@ from pathlib import Path
 DB_NAME = "revisiomaroc.db"
 UPLOAD_DIR = Path("uploads")
 UPLOAD_DIR.mkdir(exist_ok=True)
+FILES_DIR = UPLOAD_DIR / "files"
+FILES_DIR.mkdir(exist_ok=True)
+MODELS_DIR = UPLOAD_DIR / "models"
+MODELS_DIR.mkdir(exist_ok=True)
+PDF_DIR = UPLOAD_DIR / "pdfs"
+PDF_DIR.mkdir(exist_ok=True)
 
 SUBJECTS = {
     "maths": {"name": "الرياضيات", "icon": "📐", "color": "#4A90E2"},
@@ -133,6 +124,12 @@ TRANSLATIONS = {
         "already_have": "لديك حساب؟", "no_account": "ليس لديك حساب؟",
         "error_login": "خطأ في تسجيل الدخول", "success_register": "تم التسجيل بنجاح",
         "error_register": "خطأ في التسجيل", "welcome_back": "مرحباً بعودتك",
+        "files": "الملفات", "models": "نماذج الفروض", "download": "تحميل",
+        "upload": "رفع", "file_name": "اسم الملف", "file_size": "الحجم",
+        "uploaded_at": "تاريخ الرفع", "uploaded_by": "رفع بواسطة",
+        "no_files": "لا توجد ملفات", "file_uploaded": "تم رفع الملف بنجاح",
+        "confirm_delete": "هل أنت متأكد من الحذف؟", "yes": "نعم", "no": "لا",
+        "download_all": "تحميل الكل", "file_type": "النوع", "actions": "إجراءات",
     },
     "fr": {
         "home": "Accueil", "lessons": "Leçons", "quiz": "Quiz", "quick_review": "Révision rapide",
@@ -169,6 +166,12 @@ TRANSLATIONS = {
         "already_have": "Déjà un compte?", "no_account": "Pas de compte?",
         "error_login": "Erreur de connexion", "success_register": "Inscription réussie",
         "error_register": "Erreur d'inscription", "welcome_back": "Bon retour",
+        "files": "Fichiers", "models": "Modèles d'examens", "download": "Télécharger",
+        "upload": "Téléverser", "file_name": "Nom du fichier", "file_size": "Taille",
+        "uploaded_at": "Date", "uploaded_by": "Par",
+        "no_files": "Aucun fichier", "file_uploaded": "Fichier téléversé",
+        "confirm_delete": "Confirmer la suppression?", "yes": "Oui", "no": "Non",
+        "download_all": "Tout télécharger", "file_type": "Type", "actions": "Actions",
     },
     "en": {
         "home": "Home", "lessons": "Lessons", "quiz": "Quiz", "quick_review": "Quick Review",
@@ -205,6 +208,12 @@ TRANSLATIONS = {
         "already_have": "Already have an account?", "no_account": "No account?",
         "error_login": "Login error", "success_register": "Registration successful",
         "error_register": "Registration error", "welcome_back": "Welcome back",
+        "files": "Files", "models": "Exam Models", "download": "Download",
+        "upload": "Upload", "file_name": "File name", "file_size": "Size",
+        "uploaded_at": "Date", "uploaded_by": "By",
+        "no_files": "No files", "file_uploaded": "File uploaded successfully",
+        "confirm_delete": "Confirm delete?", "yes": "Yes", "no": "No",
+        "download_all": "Download all", "file_type": "Type", "actions": "Actions",
     },
 }
 
@@ -333,6 +342,35 @@ def init_db():
         priority TEXT DEFAULT 'medium',
         target_date TEXT,
         completed INTEGER DEFAULT 0
+    )""")
+    # NEW TABLES
+    c.execute("""CREATE TABLE IF NOT EXISTS files (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        subject TEXT,
+        category TEXT DEFAULT 'files',
+        title TEXT NOT NULL,
+        description TEXT,
+        file_path TEXT NOT NULL,
+        file_name TEXT NOT NULL,
+        file_size INTEGER DEFAULT 0,
+        file_type TEXT,
+        owner TEXT,
+        downloads INTEGER DEFAULT 0,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )""")
+    c.execute("""CREATE TABLE IF NOT EXISTS exam_models (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        subject TEXT NOT NULL,
+        title TEXT NOT NULL,
+        year TEXT,
+        semester TEXT,
+        description TEXT,
+        file_path TEXT NOT NULL,
+        file_name TEXT NOT NULL,
+        file_size INTEGER DEFAULT 0,
+        owner TEXT,
+        downloads INTEGER DEFAULT 0,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )""")
     dev_hash = hash_password("soufiane2030")
     c.execute("SELECT id FROM users WHERE username = ?", ("soufianeDEV",))
@@ -709,7 +747,9 @@ def upload_file(f, folder="files"):
         return None
     dest = UPLOAD_DIR / folder
     dest.mkdir(parents=True, exist_ok=True)
-    path = dest / f.name
+    timestamp = int(time.time())
+    safe_name = re.sub(r'[^\w\.\-]', '_', f.name)
+    path = dest / f"{timestamp}_{safe_name}"
     with open(path, "wb") as out:
         out.write(f.getbuffer())
     return str(path)
@@ -896,156 +936,191 @@ def auto_generate_plan(u):
     conn.close()
 
 # ============================================================
-# NEW FEATURE: ACHIEVEMENT TRACKER
+# FILES DATABASE FUNCTIONS (NEW)
 # ============================================================
 
-def get_achievement_progress(u):
-    stats = get_user_stats(u)
-    if not stats:
-        return []
-    progress = []
-    progress.append({"name": "أول اختبار", "current": min(stats["quizzes_taken"], 1), "target": 1})
-    progress.append({"name": "5 اختبارات", "current": min(stats["quizzes_taken"], 5), "target": 5})
-    progress.append({"name": "10 اختبارات", "current": min(stats["quizzes_taken"], 10), "target": 10})
-    progress.append({"name": "25 اختبار", "current": min(stats["quizzes_taken"], 25), "target": 25})
-    progress.append({"name": "50 اختبار", "current": min(stats["quizzes_taken"], 50), "target": 50})
-    progress.append({"name": "المستوى 5", "current": min(stats["level"], 5), "target": 5})
-    progress.append({"name": "المستوى 10", "current": min(stats["level"], 10), "target": 10})
-    progress.append({"name": "المستوى 20", "current": min(stats["level"], 20), "target": 20})
-    progress.append({"name": "7 مواد", "current": min(stats["unique_subjects"], 7), "target": 7})
-    progress.append({"name": "سلسلة 7 أيام", "current": min(stats["streak"], 7), "target": 7})
-    return progress
-
-# ============================================================
-# NEW FEATURE: SMART RECOMMENDATIONS
-# ============================================================
-
-def get_recommendations(u):
+def add_file_record(subject, category, title, description, file_path, file_name, file_size, file_type, owner):
     conn = get_db()
     c = conn.cursor()
-    recs = []
-    c.execute("""SELECT subject, AVG(percent) as avg_pct FROM quiz_history
-                 WHERE username = ? GROUP BY subject ORDER BY avg_pct ASC LIMIT 3""", (u,))
-    weak_subjects = c.fetchall()
-    for w in weak_subjects:
-        if w["avg_pct"] < 70:
-            subj = SUBJECTS.get(w["subject"], {"name": w["subject"], "icon": "📖"})
-            recs.append({
-                "type": "weakness",
-                "subject": w["subject"],
-                "title": f"راجع {subj['icon']} {subj['name']}",
-                "desc": f"معدلك {w['avg_pct']:.0f}% — يحتاج تحسين",
-                "icon": "⚠️"
-            })
-    c.execute("""SELECT l.* FROM lessons l
-                 LEFT JOIN quiz_history q ON l.id = q.lesson_id AND q.username = ?
-                 WHERE q.id IS NULL LIMIT 3""", (u,))
-    unread_lessons = c.fetchall()
-    for l in unread_lessons:
-        subj = SUBJECTS.get(l["subject"], {"name": l["subject"], "icon": "📖"})
-        recs.append({
-            "type": "new",
-            "subject": l["subject"],
-            "title": f"جرب درس: {l['title']}",
-            "desc": f"{subj['icon']} {subj['name']} — لم تجربه بعد",
-            "icon": "🆕"
-        })
+    c.execute("""INSERT INTO files (subject, category, title, description, file_path, file_name, file_size, file_type, owner)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+              (subject, category, title, description, file_path, file_name, file_size, file_type, owner))
+    conn.commit()
+    fid = c.lastrowid
     conn.close()
-    return recs[:5]
+    return fid
 
-# ============================================================
-# NEW FEATURE: DAILY CHALLENGE
-# ============================================================
-
-def get_daily_challenge():
+def get_files(subject=None, category=None, search=None, owner=None):
     conn = get_db()
     c = conn.cursor()
-    c.execute("SELECT * FROM questions ORDER BY RANDOM() LIMIT 5")
+    q = "SELECT * FROM files WHERE 1=1"
+    params = []
+    if subject and subject != "all":
+        q += " AND subject = ?"
+        params.append(subject)
+    if category and category != "all":
+        q += " AND category = ?"
+        params.append(category)
+    if owner:
+        q += " AND owner = ?"
+        params.append(owner)
+    if search:
+        q += " AND (title LIKE ? OR description LIKE ? OR file_name LIKE ?)"
+        params.extend([f"%{search}%", f"%{search}%", f"%{search}%"])
+    q += " ORDER BY created_at DESC"
+    c.execute(q, params)
     rows = c.fetchall()
     conn.close()
-    return [dict(r) for r in rows]
+    return rows
 
-def save_daily_challenge(u, score, total):
+def delete_file_record(fid):
     conn = get_db()
     c = conn.cursor()
-    c.execute("""INSERT INTO quiz_history (username, lesson_id, lesson_title, subject, score, total, percent)
-                 VALUES (?, ?, ?, ?, ?, ?, ?)""",
-              (u, -1, "التحدي اليومي", "daily", score, total, (score/total)*100 if total else 0))
+    c.execute("SELECT file_path FROM files WHERE id = ?", (fid,))
+    row = c.fetchone()
+    if row and row["file_path"]:
+        try:
+            if os.path.exists(row["file_path"]):
+                os.remove(row["file_path"])
+        except Exception:
+            pass
+    c.execute("DELETE FROM files WHERE id = ?", (fid,))
     conn.commit()
     conn.close()
-    update_user_stats(u, points=score * 15, quiz=True, perfect=(score == total), subject="daily")
+
+def increment_file_download(fid):
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("UPDATE files SET downloads = downloads + 1 WHERE id = ?", (fid,))
+    conn.commit()
+    conn.close()
+
+def format_size(size):
+    if size < 1024:
+        return f"{size} B"
+    elif size < 1024 * 1024:
+        return f"{size / 1024:.1f} KB"
+    elif size < 1024 * 1024 * 1024:
+        return f"{size / (1024 * 1024):.1f} MB"
+    else:
+        return f"{size / (1024 * 1024 * 1024):.2f} GB"
+
+def get_file_icon(file_type, file_name):
+    name = (file_name or "").lower()
+    ft = (file_type or "").lower()
+    if "pdf" in ft or name.endswith(".pdf"):
+        return "📕"
+    elif name.endswith(".doc") or name.endswith(".docx") or "word" in ft:
+        return "📘"
+    elif name.endswith(".xls") or name.endswith(".xlsx") or "excel" in ft:
+        return "📗"
+    elif name.endswith(".ppt") or name.endswith(".pptx") or "powerpoint" in ft:
+        return "📙"
+    elif name.endswith((".png", ".jpg", ".jpeg", ".gif", ".bmp", ".webp")) or "image" in ft:
+        return "🖼️"
+    elif name.endswith((".mp4", ".avi", ".mov", ".mkv", ".webm")) or "video" in ft:
+        return "🎬"
+    elif name.endswith((".mp3", ".wav", ".ogg", ".m4a")) or "audio" in ft:
+        return "🎵"
+    elif name.endswith((".zip", ".rar", ".7z", ".tar", ".gz")):
+        return "🗜️"
+    elif name.endswith((".py", ".js", ".html", ".css", ".java", ".cpp")):
+        return "💻"
+    else:
+        return "📄"
 
 # ============================================================
-# NEW FEATURE: STUDY TIMER (POMODORO)
+# EXAM MODELS DATABASE FUNCTIONS (NEW)
 # ============================================================
 
-def render_pomodoro():
-    st.markdown("### ⏱️ مؤقت بومودورو")
-    st.write("قم بتقسيم وقتك: 25 دقيقة مراجعة + 5 دقائق راحة")
-    if "pomodoro_start" not in st.session_state:
-        st.session_state.pomodoro_start = None
-        st.session_state.pomodoro_duration = 25 * 60
-        st.session_state.pomodoro_mode = "work"
-    c1, c2, c3 = st.columns(3)
-    with c1:
-        if st.button("▶️ ابدأ 25 دقيقة"):
-            st.session_state.pomodoro_start = time.time()
-            st.session_state.pomodoro_duration = 25 * 60
-            st.session_state.pomodoro_mode = "work"
-            st.rerun()
-    with c2:
-        if st.button("☕ راحة 5 دقائق"):
-            st.session_state.pomodoro_start = time.time()
-            st.session_state.pomodoro_duration = 5 * 60
-            st.session_state.pomodoro_mode = "break"
-            st.rerun()
-    with c3:
-        if st.button("⏹️ إيقاف"):
-            st.session_state.pomodoro_start = None
-            st.rerun()
-    if st.session_state.pomodoro_start:
-        elapsed = time.time() - st.session_state.pomodoro_start
-        remaining = max(0, st.session_state.pomodoro_duration - elapsed)
-        mins, secs = divmod(int(remaining), 60)
-        mode = "🔴 مراجعة" if st.session_state.pomodoro_mode == "work" else "🟢 راحة"
-        st.markdown(f"<h1 style='text-align:center;font-size:4rem;'>{mins:02d}:{secs:02d}</h1>", unsafe_allow_html=True)
-        st.markdown(f"<p style='text-align:center;'>{mode}</p>", unsafe_allow_html=True)
-        progress = 1 - (remaining / st.session_state.pomodoro_duration)
-        st.progress(progress)
-        if remaining <= 0:
-            st.success("انتهى الوقت!")
-            st.balloons()
-            st.session_state.pomodoro_start = None
+def add_exam_model(subject, title, year, semester, description, file_path, file_name, file_size, owner):
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("""INSERT INTO exam_models (subject, title, year, semester, description, file_path, file_name, file_size, owner)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+              (subject, title, year, semester, description, file_path, file_name, file_size, owner))
+    conn.commit()
+    mid = c.lastrowid
+    conn.close()
+    return mid
+
+def get_exam_models(subject=None, year=None, semester=None, search=None, owner=None):
+    conn = get_db()
+    c = conn.cursor()
+    q = "SELECT * FROM exam_models WHERE 1=1"
+    params = []
+    if subject and subject != "all":
+        q += " AND subject = ?"
+        params.append(subject)
+    if year and year != "all":
+        q += " AND year = ?"
+        params.append(year)
+    if semester and semester != "all":
+        q += " AND semester = ?"
+        params.append(semester)
+    if owner:
+        q += " AND owner = ?"
+        params.append(owner)
+    if search:
+        q += " AND (title LIKE ? OR description LIKE ? OR file_name LIKE ?)"
+        params.extend([f"%{search}%", f"%{search}%", f"%{search}%"])
+    q += " ORDER BY created_at DESC"
+    c.execute(q, params)
+    rows = c.fetchall()
+    conn.close()
+    return rows
+
+def delete_exam_model(mid):
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("SELECT file_path FROM exam_models WHERE id = ?", (mid,))
+    row = c.fetchone()
+    if row and row["file_path"]:
+        try:
+            if os.path.exists(row["file_path"]):
+                os.remove(row["file_path"])
+        except Exception:
+            pass
+    c.execute("DELETE FROM exam_models WHERE id = ?", (mid,))
+    conn.commit()
+    conn.close()
+
+def increment_exam_download(mid):
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("UPDATE exam_models SET downloads = downloads + 1 WHERE id = ?", (mid,))
+    conn.commit()
+    conn.close()
+
+def get_exam_years():
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("SELECT DISTINCT year FROM exam_models WHERE year IS NOT NULL AND year != '' ORDER BY year DESC")
+    rows = c.fetchall()
+    conn.close()
+    return [r["year"] for r in rows]
 
 # ============================================================
-# NEW FEATURE: PROGRESS CHART
+# DOWNLOAD HELPER
 # ============================================================
 
-def render_progress_chart(u):
-    history = get_quiz_history(u, 30)
-    if not history:
-        st.info("لا يوجد سجل بعد")
+def make_download_button(file_path, file_name, key, label="⬇️ تحميل"):
+    if not file_path or not os.path.exists(file_path):
+        st.warning("الملف غير موجود")
         return
-    data = []
-    for h in reversed(list(history)):
-        data.append({"date": h["created_at"][:10], "percent": h["percent"]})
-    import pandas as pd
-    df = pd.DataFrame(data)
-    if not df.empty:
-        df = df.groupby("date").mean().reset_index()
-        st.line_chart(df.set_index("date")["percent"])
-
-# ============================================================
-# NEW FEATURE: ACHIEVEMENT TRACKER UI
-# ============================================================
-
-def render_achievement_tracker():
-    st.markdown("### 🎯 تتبع الإنجازات")
-    progress = get_achievement_progress(st.session_state.username)
-    for p in progress:
-        pct = p["current"] / p["target"] if p["target"] else 0
-        st.markdown(f"**{p['name']}** — {p['current']}/{p['target']}")
-        st.progress(min(pct, 1.0))
+    try:
+        with open(file_path, "rb") as f:
+            data = f.read()
+        st.download_button(
+            label=label,
+            data=data,
+            file_name=file_name,
+            mime="application/octet-stream",
+            key=key,
+            use_container_width=True
+        )
+    except Exception as e:
+        st.error(f"خطأ في التحميل: {e}")
 
 # ============================================================
 # THEME & TRANSLATION
@@ -1074,6 +1149,18 @@ def apply_theme():
     .stButton > button:hover {{
         transform: translateY(-2px);
         box-shadow: 0 8px 20px {t['accent']}66;
+    }}
+    .stDownloadButton > button {{
+        background: linear-gradient(135deg, {t['highlight']}, {t['accent']});
+        color: #000;
+        border: none;
+        border-radius: 12px;
+        font-weight: 700;
+        width: 100%;
+    }}
+    .stDownloadButton > button:hover {{
+        transform: translateY(-2px);
+        box-shadow: 0 8px 20px {t['highlight']}66;
     }}
     .stTextInput > div > div > input, .stTextArea > div > div > textarea, .stSelectbox > div > div {{
         background-color: {t['card']} !important;
@@ -1104,6 +1191,25 @@ def apply_theme():
         transform: translateY(-3px);
         box-shadow: 0 8px 25px {t['accent']}44;
     }}
+    .file-card {{
+        background-color: {t['card']};
+        border: 1px solid {t['border']};
+        border-radius: 14px;
+        padding: 1rem;
+        margin: 0.6rem 0;
+        display: flex;
+        align-items: center;
+        gap: 1rem;
+        transition: all 0.3s;
+    }}
+    .file-card:hover {{
+        border-color: {t['accent']};
+        box-shadow: 0 6px 20px {t['accent']}33;
+    }}
+    .file-icon {{ font-size: 2.5rem; }}
+    .file-info {{ flex: 1; }}
+    .file-title {{ font-weight: 700; font-size: 1.1rem; color: {t['text']}; }}
+    .file-meta {{ font-size: 0.85rem; opacity: 0.75; color: {t['text']}; }}
     .stat-box {{
         background: linear-gradient(135deg, {t['card']}, {t['secondary']});
         border: 1px solid {t['border']};
@@ -1171,6 +1277,15 @@ def apply_theme():
         padding: 1rem;
         margin: 0.5rem 0;
     }}
+    .category-chip {{
+        display: inline-block;
+        background: {t['accent']};
+        color: #fff;
+        border-radius: 12px;
+        padding: 0.2rem 0.7rem;
+        font-size: 0.8rem;
+        margin: 0.1rem;
+    }}
     </style>
     """
     st.markdown(css, unsafe_allow_html=True)
@@ -1211,11 +1326,11 @@ def render_auth_home():
     with c1:
         st.markdown('<div class="card" style="text-align:center;"><div style="font-size:2rem;">📝</div><b>اختبارات تفاعلية</b></div>', unsafe_allow_html=True)
     with c2:
-        st.markdown('<div class="card" style="text-align:center;"><div style="font-size:2rem;">🃏</div><b>بطاقات تعليمية</b></div>', unsafe_allow_html=True)
+        st.markdown('<div class="card" style="text-align:center;"><div style="font-size:2rem;">📂</div><b>ملفات الدروس</b></div>', unsafe_allow_html=True)
     with c3:
-        st.markdown('<div class="card" style="text-align:center;"><div style="font-size:2rem;">🏆</div><b>نظام النقاط</b></div>', unsafe_allow_html=True)
+        st.markdown('<div class="card" style="text-align:center;"><div style="font-size:2rem;">📄</div><b>نماذج الفروض</b></div>', unsafe_allow_html=True)
     with c4:
-        st.markdown('<div class="card" style="text-align:center;"><div style="font-size:2rem;">📊</div><b>تقارير ذكية</b></div>', unsafe_allow_html=True)
+        st.markdown('<div class="card" style="text-align:center;"><div style="font-size:2rem;">🏆</div><b>نظام النقاط</b></div>', unsafe_allow_html=True)
     footer()
 
 def render_student_login():
@@ -1325,7 +1440,6 @@ def render_dashboard():
         st.markdown(f'<div class="stat-box"><div class="stat-number">{rank.split()[0]}</div><div>{rank}</div></div>', unsafe_allow_html=True)
     progress = (points % 100) / 100
     st.progress(progress, text=f"التقدم نحو المستوى {level + 1}: {points % 100}/100")
-    # Recommendations
     recs = get_recommendations(u)
     if recs:
         st.markdown("### 💡 توصيات ذكية")
@@ -1346,7 +1460,7 @@ def render_dashboard():
                 st.session_state.page = "lessons"
                 st.rerun()
     st.markdown("### ⚡ إجراءات سريعة")
-    c1, c2, c3 = st.columns(3)
+    c1, c2, c3, c4 = st.columns(4)
     with c1:
         if st.button("🎯 التحدي اليومي", use_container_width=True):
             st.session_state.page = "daily_challenge"
@@ -1356,9 +1470,48 @@ def render_dashboard():
             st.session_state.page = "pomodoro"
             st.rerun()
     with c3:
-        if st.button("⚡ مراجعة سريعة", use_container_width=True):
-            st.session_state.page = "quick_review"
+        if st.button("📂 الملفات", use_container_width=True):
+            st.session_state.page = "files"
             st.rerun()
+    with c4:
+        if st.button("📄 نماذج الفروض", use_container_width=True):
+            st.session_state.page = "exam_models"
+            st.rerun()
+    # Recent files
+    st.markdown("### 📂 أحدث الملفات المرفوعة")
+    recent_files = get_files()[:5]
+    if recent_files:
+        for f in recent_files:
+            subj = SUBJECTS.get(f["subject"], {"name": f["subject"] or "عام", "icon": "📄"})
+            icon = get_file_icon(f["file_type"], f["file_name"])
+            st.markdown(f"""
+            <div class="file-card">
+                <div class="file-icon">{icon}</div>
+                <div class="file-info">
+                    <div class="file-title">{f['title']}</div>
+                    <div class="file-meta">{subj['icon']} {subj['name']} • {format_size(f['file_size'])} • ⬇️ {f['downloads']}</div>
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+    else:
+        st.info("لا توجد ملفات بعد")
+    st.markdown("### 📄 أحدث نماذج الفروض")
+    recent_models = get_exam_models()[:5]
+    if recent_models:
+        for m in recent_models:
+            subj = SUBJECTS.get(m["subject"], {"name": m["subject"], "icon": "📄"})
+            icon = get_file_icon("", m["file_name"])
+            st.markdown(f"""
+            <div class="file-card">
+                <div class="file-icon">{icon}</div>
+                <div class="file-info">
+                    <div class="file-title">{m['title']}</div>
+                    <div class="file-meta">{subj['icon']} {subj['name']} • {m['year'] or ''} • {m['semester'] or ''} • ⬇️ {m['downloads']}</div>
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+    else:
+        st.info("لا توجد نماذج بعد")
     footer()
 
 # ============================================================
@@ -1474,6 +1627,165 @@ def render_lessons():
         with st.container():
             _render_lesson_card(lesson)
             st.divider()
+    footer()
+
+# ============================================================
+# FILES PAGE (NEW)
+# ============================================================
+
+def render_files():
+    st.markdown('<div class="header-banner"><h1>📂 ملفات الدروس والملازم</h1><p>حمّل الملفات التي رفعها الأساتذة والمطورون</p></div>', unsafe_allow_html=True)
+    tab1, tab2 = st.tabs(["📥 تصفح الملفات", "⬆️ رفع ملف"])
+    with tab1:
+        c1, c2, c3 = st.columns(3)
+        with c1:
+            subject_filter = st.selectbox("المادة", ["all"] + list(SUBJECTS.keys()),
+                                          format_func=lambda x: "الكل" if x == "all" else f"{SUBJECTS[x]['icon']} {SUBJECTS[x]['name']}",
+                                          key="files_subject")
+        with c2:
+            category_filter = st.selectbox("النوع", ["all", "files", "lessons", "exercises", "summaries", "books"],
+                                           format_func=lambda x: {
+                                               "all": "الكل", "files": "ملفات عامة", "lessons": "دروس",
+                                               "exercises": "تمارين", "summaries": "ملخصات", "books": "كتب"
+                                           }.get(x, x), key="files_category")
+        with c3:
+            search_files = st.text_input("🔍 بحث", key="files_search")
+        files_list = get_files(subject=subject_filter, category=category_filter, search=search_files)
+        st.markdown(f"**عدد الملفات:** {len(files_list)}")
+        if not files_list:
+            st.info("لا توجد ملفات")
+        for f in files_list:
+            subj = SUBJECTS.get(f["subject"], {"name": f["subject"] or "عام", "icon": "📄"})
+            icon = get_file_icon(f["file_type"], f["file_name"])
+            with st.container():
+                st.markdown(f"""
+                <div class="file-card">
+                    <div class="file-icon">{icon}</div>
+                    <div class="file-info">
+                        <div class="file-title">{f['title']}</div>
+                        <div class="file-meta">{subj['icon']} {subj['name']} • {format_size(f['file_size'])} • {f['file_name']}</div>
+                        <div class="file-meta">{f['description'] or ''}</div>
+                        <div class="file-meta">👤 {f['owner'] or 'مجهول'} • 📅 {f['created_at'][:16]} • ⬇️ {f['downloads']} تحميل</div>
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
+                c1, c2 = st.columns([3, 1])
+                with c1:
+                    if st.button(f"⬇️ تحميل ({format_size(f['file_size'])})", key=f"dl_file_{f['id']}", use_container_width=True):
+                        increment_file_download(f["id"])
+                        make_download_button(f["file_path"], f["file_name"], f"dl_btn_{f['id']}", "📥 اضغط للتحميل")
+                with c2:
+                    if st.session_state.role == "developer" or st.session_state.username == f["owner"]:
+                        if st.button("🗑️ حذف", key=f"del_file_{f['id']}", use_container_width=True):
+                            delete_file_record(f["id"])
+                            st.success("تم الحذف")
+                            st.rerun()
+                st.divider()
+    with tab2:
+        st.markdown("### ⬆️ رفع ملف جديد")
+        with st.form("upload_file_form"):
+            title = st.text_input("عنوان الملف *")
+            subject = st.selectbox("المادة", list(SUBJECTS.keys()),
+                                   format_func=lambda x: f"{SUBJECTS[x]['icon']} {SUBJECTS[x]['name']}")
+            category = st.selectbox("النوع", ["files", "lessons", "exercises", "summaries", "books"],
+                                    format_func=lambda x: {
+                                        "files": "ملف عام", "lessons": "درس", "exercises": "تمارين",
+                                        "summaries": "ملخص", "books": "كتاب"
+                                    }.get(x, x))
+            description = st.text_area("وصف مختصر")
+            uploaded = st.file_uploader("اختر الملف *", type=None)
+            if st.form_submit_button("⬆️ رفع الملف", use_container_width=True):
+                if not title or not uploaded:
+                    st.error("العنوان والملف مطلوبان")
+                else:
+                    path = upload_file(uploaded, "files")
+                    size = os.path.getsize(path) if path and os.path.exists(path) else 0
+                    add_file_record(subject, category, title, description, path, uploaded.name, size,
+                                    uploaded.type or "", st.session_state.username)
+                    st.success(T("file_uploaded") + " ✅")
+                    st.rerun()
+    footer()
+
+# ============================================================
+# EXAM MODELS PAGE (NEW)
+# ============================================================
+
+def render_exam_models():
+    st.markdown('<div class="header-banner"><h1>📄 نماذج الفروض والامتحانات</h1><p>حمّل نماذج الفروض السابقة للتدريب</p></div>', unsafe_allow_html=True)
+    tab1, tab2 = st.tabs(["📥 تصفح النماذج", "⬆️ رفع نموذج"])
+    with tab1:
+        c1, c2, c3, c4 = st.columns(4)
+        with c1:
+            subject_filter = st.selectbox("المادة", ["all"] + list(SUBJECTS.keys()),
+                                          format_func=lambda x: "الكل" if x == "all" else f"{SUBJECTS[x]['icon']} {SUBJECTS[x]['name']}",
+                                          key="models_subject")
+        with c2:
+            years = get_exam_years()
+            year_filter = st.selectbox("السنة", ["all"] + years,
+                                       format_func=lambda x: "الكل" if x == "all" else x,
+                                       key="models_year")
+        with c3:
+            semester_filter = st.selectbox("الدورة", ["all", "الأولى", "الثانية"],
+                                           format_func=lambda x: "الكل" if x == "all" else f"الدورة {x}",
+                                           key="models_semester")
+        with c4:
+            search_models = st.text_input("🔍 بحث", key="models_search")
+        models = get_exam_models(subject=subject_filter, year=year_filter, semester=semester_filter, search=search_models)
+        st.markdown(f"**عدد النماذج:** {len(models)}")
+        if not models:
+            st.info("لا توجد نماذج")
+        for m in models:
+            subj = SUBJECTS.get(m["subject"], {"name": m["subject"], "icon": "📄"})
+            icon = get_file_icon("", m["file_name"])
+            with st.container():
+                st.markdown(f"""
+                <div class="file-card">
+                    <div class="file-icon">{icon}</div>
+                    <div class="file-info">
+                        <div class="file-title">{m['title']}</div>
+                        <div class="file-meta">{subj['icon']} {subj['name']} • {m['year'] or '—'} • {m['semester'] or '—'}</div>
+                        <div class="file-meta">{m['description'] or ''}</div>
+                        <div class="file-meta">👤 {m['owner'] or 'مجهول'} • 📅 {m['created_at'][:16]} • ⬇️ {m['downloads']} تحميل</div>
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
+                c1, c2 = st.columns([3, 1])
+                with c1:
+                    if st.button(f"⬇️ تحميل ({format_size(m['file_size'])})", key=f"dl_model_{m['id']}", use_container_width=True):
+                        increment_exam_download(m["id"])
+                        make_download_button(m["file_path"], m["file_name"], f"dl_m_btn_{m['id']}", "📥 اضغط للتحميل")
+                with c2:
+                    if st.session_state.role == "developer" or st.session_state.username == m["owner"]:
+                        if st.button("🗑️ حذف", key=f"del_model_{m['id']}", use_container_width=True):
+                            delete_exam_model(m["id"])
+                            st.success("تم الحذف")
+                            st.rerun()
+                st.divider()
+    with tab2:
+        st.markdown("### ⬆️ رفع نموذج فرض جديد")
+        with st.form("upload_model_form"):
+            title = st.text_input("عنوان النموذج *")
+            subject = st.selectbox("المادة", list(SUBJECTS.keys()),
+                                   format_func=lambda x: f"{SUBJECTS[x]['icon']} {SUBJECTS[x]['name']}",
+                                   key="model_subject_form")
+            c1, c2 = st.columns(2)
+            with c1:
+                year = st.text_input("السنة (مثال: 2024)")
+            with c2:
+                semester = st.selectbox("الدورة", ["", "الأولى", "الثانية"],
+                                        format_func=lambda x: x if x else "غير محدد")
+            description = st.text_area("وصف")
+            uploaded = st.file_uploader("اختر ملف النموذج (PDF, Word...)", type=None, key="model_file")
+            if st.form_submit_button("⬆️ رفع النموذج", use_container_width=True):
+                if not title or not uploaded:
+                    st.error("العنوان والملف مطلوبان")
+                else:
+                    path = upload_file(uploaded, "models")
+                    size = os.path.getsize(path) if path and os.path.exists(path) else 0
+                    add_exam_model(subject, title, year, semester, description, path, uploaded.name, size,
+                                   st.session_state.username)
+                    st.success("تم رفع النموذج بنجاح ✅")
+                    st.rerun()
     footer()
 
 # ============================================================
@@ -1596,6 +1908,24 @@ def render_quick_review():
 # DAILY CHALLENGE
 # ============================================================
 
+def get_daily_challenge():
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("SELECT * FROM questions ORDER BY RANDOM() LIMIT 5")
+    rows = c.fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+def save_daily_challenge(u, score, total):
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("""INSERT INTO quiz_history (username, lesson_id, lesson_title, subject, score, total, percent)
+                 VALUES (?, ?, ?, ?, ?, ?, ?)""",
+              (u, -1, "التحدي اليومي", "daily", score, total, (score/total)*100 if total else 0))
+    conn.commit()
+    conn.close()
+    update_user_stats(u, points=score * 15, quiz=True, perfect=(score == total), subject="daily")
+
 def render_daily_challenge():
     st.markdown('<div class="header-banner"><h1>🎯 التحدي اليومي</h1></div>', unsafe_allow_html=True)
     st.write("5 أسئلة عشوائية — 15 نقطة لكل إجابة صحيحة!")
@@ -1640,8 +1970,46 @@ def render_daily_challenge():
     footer()
 
 # ============================================================
-# POMODORO PAGE
+# POMODORO
 # ============================================================
+
+def render_pomodoro():
+    st.markdown("### ⏱️ مؤقت بومودورو")
+    st.write("قم بتقسيم وقتك: 25 دقيقة مراجعة + 5 دقائق راحة")
+    if "pomodoro_start" not in st.session_state:
+        st.session_state.pomodoro_start = None
+        st.session_state.pomodoro_duration = 25 * 60
+        st.session_state.pomodoro_mode = "work"
+    c1, c2, c3 = st.columns(3)
+    with c1:
+        if st.button("▶️ ابدأ 25 دقيقة"):
+            st.session_state.pomodoro_start = time.time()
+            st.session_state.pomodoro_duration = 25 * 60
+            st.session_state.pomodoro_mode = "work"
+            st.rerun()
+    with c2:
+        if st.button("☕ راحة 5 دقائق"):
+            st.session_state.pomodoro_start = time.time()
+            st.session_state.pomodoro_duration = 5 * 60
+            st.session_state.pomodoro_mode = "break"
+            st.rerun()
+    with c3:
+        if st.button("⏹️ إيقاف"):
+            st.session_state.pomodoro_start = None
+            st.rerun()
+    if st.session_state.pomodoro_start:
+        elapsed = time.time() - st.session_state.pomodoro_start
+        remaining = max(0, st.session_state.pomodoro_duration - elapsed)
+        mins, secs = divmod(int(remaining), 60)
+        mode = "🔴 مراجعة" if st.session_state.pomodoro_mode == "work" else "🟢 راحة"
+        st.markdown(f"<h1 style='text-align:center;font-size:4rem;'>{mins:02d}:{secs:02d}</h1>", unsafe_allow_html=True)
+        st.markdown(f"<p style='text-align:center;'>{mode}</p>", unsafe_allow_html=True)
+        progress = 1 - (remaining / st.session_state.pomodoro_duration)
+        st.progress(progress)
+        if remaining <= 0:
+            st.success("انتهى الوقت!")
+            st.balloons()
+            st.session_state.pomodoro_start = None
 
 def render_pomodoro_page():
     st.markdown('<div class="header-banner"><h1>⏱️ مؤقت المراجعة</h1></div>', unsafe_allow_html=True)
@@ -1765,6 +2133,25 @@ def render_leaderboard():
 # WEEKLY REPORT
 # ============================================================
 
+def render_progress_chart(u):
+    history = get_quiz_history(u, 30)
+    if not history:
+        st.info("لا يوجد سجل بعد")
+        return
+    data = []
+    for h in reversed(list(history)):
+        data.append({"date": h["created_at"][:10], "percent": h["percent"]})
+    try:
+        import pandas as pd
+        df = pd.DataFrame(data)
+        if not df.empty:
+            df = df.groupby("date").mean().reset_index()
+            st.line_chart(df.set_index("date")["percent"])
+    except ImportError:
+        st.info("pandas غير مثبت — عرض بيانات بسيطة")
+        for d in data[-10:]:
+            st.write(f"{d['date']}: {d['percent']:.1f}%")
+
 def render_weekly_report():
     st.markdown('<div class="header-banner"><h1>📊 التقرير الأسبوعي</h1></div>', unsafe_allow_html=True)
     report = get_weekly_report(st.session_state.username)
@@ -1814,6 +2201,64 @@ def render_notifications():
 # ============================================================
 # MY STATS
 # ============================================================
+
+def get_achievement_progress(u):
+    stats = get_user_stats(u)
+    if not stats:
+        return []
+    progress = []
+    progress.append({"name": "أول اختبار", "current": min(stats["quizzes_taken"], 1), "target": 1})
+    progress.append({"name": "5 اختبارات", "current": min(stats["quizzes_taken"], 5), "target": 5})
+    progress.append({"name": "10 اختبارات", "current": min(stats["quizzes_taken"], 10), "target": 10})
+    progress.append({"name": "25 اختبار", "current": min(stats["quizzes_taken"], 25), "target": 25})
+    progress.append({"name": "50 اختبار", "current": min(stats["quizzes_taken"], 50), "target": 50})
+    progress.append({"name": "المستوى 5", "current": min(stats["level"], 5), "target": 5})
+    progress.append({"name": "المستوى 10", "current": min(stats["level"], 10), "target": 10})
+    progress.append({"name": "المستوى 20", "current": min(stats["level"], 20), "target": 20})
+    progress.append({"name": "7 مواد", "current": min(stats["unique_subjects"], 7), "target": 7})
+    progress.append({"name": "سلسلة 7 أيام", "current": min(stats["streak"], 7), "target": 7})
+    return progress
+
+def get_recommendations(u):
+    conn = get_db()
+    c = conn.cursor()
+    recs = []
+    c.execute("""SELECT subject, AVG(percent) as avg_pct FROM quiz_history
+                 WHERE username = ? GROUP BY subject ORDER BY avg_pct ASC LIMIT 3""", (u,))
+    weak_subjects = c.fetchall()
+    for w in weak_subjects:
+        if w["avg_pct"] < 70:
+            subj = SUBJECTS.get(w["subject"], {"name": w["subject"], "icon": "📖"})
+            recs.append({
+                "type": "weakness",
+                "subject": w["subject"],
+                "title": f"راجع {subj['icon']} {subj['name']}",
+                "desc": f"معدلك {w['avg_pct']:.0f}% — يحتاج تحسين",
+                "icon": "⚠️"
+            })
+    c.execute("""SELECT l.* FROM lessons l
+                 LEFT JOIN quiz_history q ON l.id = q.lesson_id AND q.username = ?
+                 WHERE q.id IS NULL LIMIT 3""", (u,))
+    unread_lessons = c.fetchall()
+    for l in unread_lessons:
+        subj = SUBJECTS.get(l["subject"], {"name": l["subject"], "icon": "📖"})
+        recs.append({
+            "type": "new",
+            "subject": l["subject"],
+            "title": f"جرب درس: {l['title']}",
+            "desc": f"{subj['icon']} {subj['name']} — لم تجربه بعد",
+            "icon": "🆕"
+        })
+    conn.close()
+    return recs[:5]
+
+def render_achievement_tracker():
+    st.markdown("### 🎯 تتبع الإنجازات")
+    progress = get_achievement_progress(st.session_state.username)
+    for p in progress:
+        pct = p["current"] / p["target"] if p["target"] else 0
+        st.markdown(f"**{p['name']}** — {p['current']}/{p['target']}")
+        st.progress(min(pct, 1.0))
 
 def render_my_stats():
     st.markdown('<div class="header-banner"><h1>📈 إحصائياتي</h1></div>', unsafe_allow_html=True)
@@ -1868,7 +2313,7 @@ def render_favorites():
 
 def render_developer_panel():
     st.markdown('<div class="header-banner"><h1>🛠️ لوحة المطور</h1></div>', unsafe_allow_html=True)
-    tab1, tab2, tab3, tab4 = st.tabs(["📚 الدروس", "❓ الأسئلة", "👥 المستخدمون", "📊 إحصائيات"])
+    tab1, tab2, tab3, tab4, tab5 = st.tabs(["📚 الدروس", "❓ الأسئلة", "👥 المستخدمون", "📂 الملفات", "📄 نماذج الفروض"])
     with tab1:
         with st.expander("➕ إضافة درس"):
             with st.form("add_lesson_form"):
@@ -1942,26 +2387,101 @@ def render_developer_panel():
         for user in users:
             st.markdown(f"**{user['username']}** — {user['full_name']} — {user['role']} — {user['created_at'][:10]}")
     with tab4:
-        conn = get_db()
-        c = conn.cursor()
-        c.execute("SELECT COUNT(*) as cnt FROM lessons")
-        total_lessons = c.fetchone()["cnt"]
-        c.execute("SELECT COUNT(*) as cnt FROM questions")
-        total_questions = c.fetchone()["cnt"]
-        c.execute("SELECT COUNT(*) as cnt FROM quiz_history")
-        total_quizzes = c.fetchone()["cnt"]
-        c.execute("SELECT COUNT(*) as cnt FROM users")
-        total_users = c.fetchone()["cnt"]
-        conn.close()
-        c1, c2, c3, c4 = st.columns(4)
-        with c1:
-            st.metric("الدروس", total_lessons)
-        with c2:
-            st.metric("الأسئلة", total_questions)
-        with c3:
-            st.metric("الاختبارات", total_quizzes)
-        with c4:
-            st.metric("المستخدمون", total_users)
+        st.markdown("### 📂 إدارة الملفات")
+        st.markdown("#### ⬆️ رفع ملف جديد")
+        with st.form("dev_upload_file"):
+            title = st.text_input("عنوان الملف *")
+            subject = st.selectbox("المادة", list(SUBJECTS.keys()),
+                                   format_func=lambda x: f"{SUBJECTS[x]['icon']} {SUBJECTS[x]['name']}",
+                                   key="dev_file_subject")
+            category = st.selectbox("النوع", ["files", "lessons", "exercises", "summaries", "books"],
+                                    format_func=lambda x: {
+                                        "files": "ملف عام", "lessons": "درس", "exercises": "تمارين",
+                                        "summaries": "ملخص", "books": "كتاب"
+                                    }.get(x, x), key="dev_file_cat")
+            description = st.text_area("وصف مختصر", key="dev_file_desc")
+            uploaded = st.file_uploader("اختر الملف *", type=None, key="dev_file_upload")
+            if st.form_submit_button("⬆️ رفع الملف", use_container_width=True):
+                if not title or not uploaded:
+                    st.error("العنوان والملف مطلوبان")
+                else:
+                    path = upload_file(uploaded, "files")
+                    size = os.path.getsize(path) if path and os.path.exists(path) else 0
+                    add_file_record(subject, category, title, description, path, uploaded.name, size,
+                                    uploaded.type or "", st.session_state.username)
+                    st.success(T("file_uploaded") + " ✅")
+                    st.rerun()
+        st.markdown("#### 📋 قائمة الملفات")
+        all_files = get_files()
+        st.markdown(f"**إجمالي الملفات:** {len(all_files)}")
+        for f in all_files:
+            subj = SUBJECTS.get(f["subject"], {"name": f["subject"] or "عام", "icon": "📄"})
+            icon = get_file_icon(f["file_type"], f["file_name"])
+            with st.expander(f"{icon} {f['title']} — {subj['name']}"):
+                st.write(f"**الملف:** {f['file_name']}")
+                st.write(f"**الحجم:** {format_size(f['file_size'])}")
+                st.write(f"**النوع:** {f['file_type'] or 'غير محدد'}")
+                st.write(f"**الوصف:** {f['description'] or '—'}")
+                st.write(f"**رافع:** {f['owner']}")
+                st.write(f"**التاريخ:** {f['created_at'][:16]}")
+                st.write(f"**التحميلات:** {f['downloads']}")
+                c1, c2 = st.columns(2)
+                with c1:
+                    make_download_button(f["file_path"], f["file_name"], f"dev_dl_{f['id']}", "📥 تحميل")
+                with c2:
+                    if st.button("🗑️ حذف", key=f"dev_del_file_{f['id']}"):
+                        delete_file_record(f["id"])
+                        st.success("تم الحذف")
+                        st.rerun()
+    with tab5:
+        st.markdown("### 📄 إدارة نماذج الفروض")
+        st.markdown("#### ⬆️ رفع نموذج جديد")
+        with st.form("dev_upload_model"):
+            title = st.text_input("عنوان النموذج *", key="dev_model_title")
+            subject = st.selectbox("المادة", list(SUBJECTS.keys()),
+                                   format_func=lambda x: f"{SUBJECTS[x]['icon']} {SUBJECTS[x]['name']}",
+                                   key="dev_model_subject")
+            c1, c2 = st.columns(2)
+            with c1:
+                year = st.text_input("السنة", key="dev_model_year")
+            with c2:
+                semester = st.selectbox("الدورة", ["", "الأولى", "الثانية"],
+                                        format_func=lambda x: x if x else "غير محدد", key="dev_model_sem")
+            description = st.text_area("وصف", key="dev_model_desc")
+            uploaded = st.file_uploader("اختر ملف النموذج", type=None, key="dev_model_file")
+            if st.form_submit_button("⬆️ رفع النموذج", use_container_width=True):
+                if not title or not uploaded:
+                    st.error("العنوان والملف مطلوبان")
+                else:
+                    path = upload_file(uploaded, "models")
+                    size = os.path.getsize(path) if path and os.path.exists(path) else 0
+                    add_exam_model(subject, title, year, semester, description, path, uploaded.name, size,
+                                   st.session_state.username)
+                    st.success("تم رفع النموذج بنجاح ✅")
+                    st.rerun()
+        st.markdown("#### 📋 قائمة النماذج")
+        all_models = get_exam_models()
+        st.markdown(f"**إجمالي النماذج:** {len(all_models)}")
+        for m in all_models:
+            subj = SUBJECTS.get(m["subject"], {"name": m["subject"], "icon": "📄"})
+            icon = get_file_icon("", m["file_name"])
+            with st.expander(f"{icon} {m['title']} — {subj['name']}"):
+                st.write(f"**الملف:** {m['file_name']}")
+                st.write(f"**الحجم:** {format_size(m['file_size'])}")
+                st.write(f"**السنة:** {m['year'] or '—'}")
+                st.write(f"**الدورة:** {m['semester'] or '—'}")
+                st.write(f"**الوصف:** {m['description'] or '—'}")
+                st.write(f"**رافع:** {m['owner']}")
+                st.write(f"**التاريخ:** {m['created_at'][:16]}")
+                st.write(f"**التحميلات:** {m['downloads']}")
+                c1, c2 = st.columns(2)
+                with c1:
+                    make_download_button(m["file_path"], m["file_name"], f"dev_dl_m_{m['id']}", "📥 تحميل")
+                with c2:
+                    if st.button("🗑️ حذف", key=f"dev_del_model_{m['id']}"):
+                        delete_exam_model(m["id"])
+                        st.success("تم الحذف")
+                        st.rerun()
     footer()
 
 # ============================================================
@@ -1991,6 +2511,8 @@ def render_sidebar():
         pages = [
             ("dashboard", "🏠", T("home")),
             ("lessons", "📖", T("lessons")),
+            ("files", "📂", "الملفات"),
+            ("exam_models", "📄", "نماذج الفروض"),
             ("daily_challenge", "🎯", "التحدي اليومي"),
             ("quick_review", "⚡", T("quick_review")),
             ("pomodoro", "⏱️", "مؤقت المراجعة"),
@@ -2047,6 +2569,10 @@ if page == "dashboard":
     render_dashboard()
 elif page == "lessons":
     render_lessons()
+elif page == "files":
+    render_files()
+elif page == "exam_models":
+    render_exam_models()
 elif page == "quiz":
     render_quiz()
 elif page == "daily_challenge":
