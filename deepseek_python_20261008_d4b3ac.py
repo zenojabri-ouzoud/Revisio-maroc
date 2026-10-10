@@ -104,36 +104,6 @@ RANKS = [
     (1, "🌱 مبتدئ"),
 ]
 
-TRANSLATIONS = {
-    "ar": {
-        "home": "الرئيسية", "lessons": "الدروس", "quiz": "الاختبار", "quick_review": "مراجعة سريعة",
-        "flashcards": "بطاقات تعليمية", "study_plan": "خطة الدراسة", "friends": "الأصدقاء",
-        "leaderboard": "المتصدرون", "weekly_report": "التقرير الأسبوعي", "notifications": "الإشعارات",
-        "my_stats": "إحصائياتي", "favorites": "المفضلة", "developer": "لوحة المطور",
-        "logout": "تسجيل الخروج", "theme": "الثيم", "language": "اللغة",
-        "files": "الملفات", "models": "نماذج الفروض", "exercises": "التمارين",
-        "download": "تحميل", "read": "قراءة", "upload": "رفع",
-    },
-    "fr": {
-        "home": "Accueil", "lessons": "Leçons", "quiz": "Quiz", "quick_review": "Révision rapide",
-        "flashcards": "Cartes", "study_plan": "Plan d'étude", "friends": "Amis",
-        "leaderboard": "Classement", "weekly_report": "Rapport hebdo", "notifications": "Notifications",
-        "my_stats": "Mes stats", "favorites": "Favoris", "developer": "Panneau dev",
-        "logout": "Déconnexion", "theme": "Thème", "language": "Langue",
-        "files": "Fichiers", "models": "Modèles", "exercises": "Exercices",
-        "download": "Télécharger", "read": "Lire", "upload": "Téléverser",
-    },
-    "en": {
-        "home": "Home", "lessons": "Lessons", "quiz": "Quiz", "quick_review": "Quick Review",
-        "flashcards": "Flashcards", "study_plan": "Study Plan", "friends": "Friends",
-        "leaderboard": "Leaderboard", "weekly_report": "Weekly Report", "notifications": "Notifications",
-        "my_stats": "My Stats", "favorites": "Favorites", "developer": "Developer Panel",
-        "logout": "Logout", "theme": "Theme", "language": "Language",
-        "files": "Files", "models": "Exam Models", "exercises": "Exercises",
-        "download": "Download", "read": "Read", "upload": "Upload",
-    },
-}
-
 # ============================================================
 # DATABASE
 # ============================================================
@@ -264,7 +234,6 @@ def init_db():
         target_date TEXT,
         completed INTEGER DEFAULT 0
     )""")
-    # CORE FILES TABLE (unified: files, models, exercises, images)
     c.execute("""CREATE TABLE IF NOT EXISTS files (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         subject TEXT,
@@ -284,7 +253,6 @@ def init_db():
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )""")
-    # LINK FILES TO LESSONS
     c.execute("""CREATE TABLE IF NOT EXISTS lesson_files (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         lesson_id INTEGER NOT NULL,
@@ -295,7 +263,6 @@ def init_db():
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         UNIQUE(lesson_id, file_id)
     )""")
-    # FILE COMMENTS
     c.execute("""CREATE TABLE IF NOT EXISTS file_comments (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         file_id INTEGER NOT NULL,
@@ -303,7 +270,6 @@ def init_db():
         comment TEXT NOT NULL,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )""")
-    # FILE RATINGS
     c.execute("""CREATE TABLE IF NOT EXISTS file_ratings (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         file_id INTEGER NOT NULL,
@@ -311,7 +277,6 @@ def init_db():
         rating INTEGER,
         UNIQUE(file_id, username)
     )""")
-    # COLLECTIONS (Bundles)
     c.execute("""CREATE TABLE IF NOT EXISTS collections (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         title TEXT NOT NULL,
@@ -328,7 +293,6 @@ def init_db():
         item_id INTEGER NOT NULL,
         UNIQUE(collection_id, item_type, item_id)
     )""")
-    # FILE VERSIONS
     c.execute("""CREATE TABLE IF NOT EXISTS file_versions (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         file_id INTEGER NOT NULL,
@@ -339,7 +303,6 @@ def init_db():
         uploaded_by TEXT,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )""")
-    # READING PROGRESS
     c.execute("""CREATE TABLE IF NOT EXISTS reading_progress (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         username TEXT NOT NULL,
@@ -350,13 +313,6 @@ def init_db():
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         UNIQUE(username, file_id)
     )""")
-    # TAGS
-    c.execute("""CREATE TABLE IF NOT EXISTS tags (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        name TEXT UNIQUE NOT NULL,
-        usage_count INTEGER DEFAULT 0
-    )""")
-    # FILE DOWNLOADS TRACKING
     c.execute("""CREATE TABLE IF NOT EXISTS download_log (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         username TEXT,
@@ -572,12 +528,11 @@ def add_notification(u, title, msg, icon="🔔"):
     conn.close()
 
 def notify_subject_followers(subject, title, msg, icon="📢"):
-    """Aspect 6: notify users interested in this subject"""
     conn = get_db()
     c = conn.cursor()
     c.execute("SELECT DISTINCT username FROM quiz_history WHERE subject = ?", (subject,))
     users1 = [r["username"] for r in c.fetchall()]
-    c.execute("""SELECT DISTINCT f.username FROM favorites f JOIN lessons l ON f.lesson_id = l.id WHERE l.subject = ?""", (subject,))
+    c.execute("SELECT DISTINCT f.username FROM favorites f JOIN lessons l ON f.lesson_id = l.id WHERE l.subject = ?", (subject,))
     users2 = [r["username"] for r in c.fetchall()]
     conn.close()
     for u in set(users1 + users2):
@@ -754,7 +709,7 @@ def upload_file(f, folder="files"):
 
 def render_pdf(path):
     if not path or not os.path.exists(path):
-        st.info("الملف غير متوفر للقراءة المباشرة")
+        st.info("الملف غير متوفر")
         return
     try:
         with open(path, "rb") as f:
@@ -943,7 +898,7 @@ def auto_generate_plan(u):
     conn.close()
 
 # ============================================================
-# UNIFIED FILES SYSTEM (files + models + exercises + images)
+# FILES
 # ============================================================
 
 def add_file_record(subject, category, title, description, file_path, file_name,
@@ -958,7 +913,6 @@ def add_file_record(subject, category, title, description, file_path, file_name,
     conn.commit()
     fid = c.lastrowid
     conn.close()
-    # notify subject followers
     subj_name = SUBJECTS.get(subject, {"name": subject})["name"] if subject else "عام"
     notify_subject_followers(subject, f"📢 ملف جديد: {title}",
                               f"تم رفع ملف جديد في {subj_name}: {title}", "📂")
@@ -1084,10 +1038,6 @@ def get_file_avg_rating(file_id):
     conn.close()
     return (r["avg"] or 0, r["cnt"] or 0)
 
-# ============================================================
-# LESSON-FILE LINK (Aspect 1)
-# ============================================================
-
 def link_file_to_lesson(lesson_id, file_id, added_by, is_pinned=0):
     conn = get_db()
     c = conn.cursor()
@@ -1146,7 +1096,7 @@ def pin_lesson_file(lesson_id, file_id):
     conn.close()
 
 # ============================================================
-# COLLECTIONS (Aspect 3)
+# COLLECTIONS
 # ============================================================
 
 def add_collection(title, description, subject, icon, owner):
@@ -1200,7 +1150,6 @@ def delete_collection(cid):
     conn.close()
 
 def build_collection_zip(collection_id):
-    """Aspect 10: download collection as ZIP"""
     items = get_collection_items(collection_id)
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
@@ -1214,10 +1163,6 @@ def build_collection_zip(collection_id):
                         pass
     buf.seek(0)
     return buf.getvalue()
-
-# ============================================================
-# FILE VERSIONS (Aspect 17)
-# ============================================================
 
 def add_file_version(file_id, version, file_path, file_size, notes, uploaded_by):
     conn = get_db()
@@ -1244,10 +1189,6 @@ def get_next_version(file_id):
     conn.close()
     return (r["v"] or 0) + 1
 
-# ============================================================
-# READING PROGRESS (Aspect 5)
-# ============================================================
-
 def save_reading_progress(username, file_id, last_page, total_pages, seconds):
     conn = get_db()
     c = conn.cursor()
@@ -1268,10 +1209,6 @@ def get_reading_progress(username, file_id):
     row = c.fetchone()
     conn.close()
     return row
-
-# ============================================================
-# SEARCH ALL (Aspect 2)
-# ============================================================
 
 def search_all(query):
     conn = get_db()
@@ -1305,26 +1242,16 @@ def format_size(size):
 def get_file_icon(file_type, file_name):
     name = (file_name or "").lower()
     ft = (file_type or "").lower()
-    if "pdf" in ft or name.endswith(".pdf"):
-        return "📕"
-    elif name.endswith((".doc", ".docx")) or "word" in ft:
-        return "📘"
-    elif name.endswith((".xls", ".xlsx")) or "excel" in ft:
-        return "📗"
-    elif name.endswith((".ppt", ".pptx")) or "powerpoint" in ft:
-        return "📙"
-    elif name.endswith((".png", ".jpg", ".jpeg", ".gif", ".bmp", ".webp")) or "image" in ft:
-        return "🖼️"
-    elif name.endswith((".mp4", ".avi", ".mov", ".mkv", ".webm")) or "video" in ft:
-        return "🎬"
-    elif name.endswith((".mp3", ".wav", ".ogg", ".m4a")) or "audio" in ft:
-        return "🎵"
-    elif name.endswith((".zip", ".rar", ".7z", ".tar", ".gz")):
-        return "🗜️"
-    elif name.endswith((".py", ".js", ".html", ".css", ".java", ".cpp")):
-        return "💻"
-    else:
-        return "📄"
+    if "pdf" in ft or name.endswith(".pdf"): return "📕"
+    elif name.endswith((".doc", ".docx")) or "word" in ft: return "📘"
+    elif name.endswith((".xls", ".xlsx")) or "excel" in ft: return "📗"
+    elif name.endswith((".ppt", ".pptx")) or "powerpoint" in ft: return "📙"
+    elif name.endswith((".png", ".jpg", ".jpeg", ".gif", ".bmp", ".webp")) or "image" in ft: return "🖼️"
+    elif name.endswith((".mp4", ".avi", ".mov", ".mkv", ".webm")) or "video" in ft: return "🎬"
+    elif name.endswith((".mp3", ".wav", ".ogg", ".m4a")) or "audio" in ft: return "🎵"
+    elif name.endswith((".zip", ".rar", ".7z", ".tar", ".gz")): return "🗜️"
+    elif name.endswith((".py", ".js", ".html", ".css", ".java", ".cpp")): return "💻"
+    else: return "📄"
 
 def make_download_button(file_path, file_name, key, label="⬇️ تحميل"):
     if not file_path or not os.path.exists(file_path):
@@ -1333,19 +1260,12 @@ def make_download_button(file_path, file_name, key, label="⬇️ تحميل"):
     try:
         with open(file_path, "rb") as f:
             data = f.read()
-        st.download_button(
-            label=label,
-            data=data,
-            file_name=file_name,
-            mime="application/octet-stream",
-            key=key,
-            use_container_width=True
-        )
+        st.download_button(label=label, data=data, file_name=file_name,
+                           mime="application/octet-stream", key=key, use_container_width=True)
     except Exception as e:
-        st.error(f"خطأ في التحميل: {e}")
+        st.error(f"خطأ: {e}")
 
 def build_lesson_zip(lesson_id):
-    """Aspect 10: download all files of lesson as ZIP"""
     files = get_lesson_files(lesson_id)
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
@@ -1358,6 +1278,31 @@ def build_lesson_zip(lesson_id):
     buf.seek(0)
     return buf.getvalue()
 
+def is_arabic_text(text):
+    """Check if text contains Arabic characters to decide direction"""
+    if not text:
+        return False
+    arabic_pattern = re.compile(r'[\u0600-\u06FF\u0750-\u077F]')
+    return bool(arabic_pattern.search(text))
+
+def smart_text(text):
+    """Render text with correct direction based on content"""
+    if not text:
+        return
+    if is_arabic_text(text):
+        st.markdown(f'<div style="direction: rtl; text-align: right;">{text}</div>', unsafe_allow_html=True)
+    else:
+        st.markdown(f'<div style="direction: ltr; text-align: left;">{text}</div>', unsafe_allow_html=True)
+
+def smart_markdown(text):
+    """Return text with proper HTML direction wrapper"""
+    if not text:
+        return ""
+    if is_arabic_text(text):
+        return f'<div style="direction: rtl; text-align: right; unicode-bidi: embed;">{text}</div>'
+    else:
+        return f'<div style="direction: ltr; text-align: left; unicode-bidi: embed;">{text}</div>'
+
 # ============================================================
 # THEME
 # ============================================================
@@ -1368,7 +1313,7 @@ def apply_theme():
     css = f"""
     <style>
     @import url('https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;900&display=swap');
-    * {{ font-family: 'Cairo', sans-serif; direction: rtl; }}
+    * {{ font-family: 'Cairo', sans-serif; }}
     .stApp {{ background-color: {t['bg']}; color: {t['text']}; }}
     .main .block-container {{ padding: 1rem 2rem; max-width: 1200px; }}
     h1, h2, h3, h4, h5, h6 {{ color: {t['text']}; }}
@@ -1385,10 +1330,12 @@ def apply_theme():
         color: #000; border: none; border-radius: 12px;
         font-weight: 700; width: 100%;
     }}
-    .stDownloadButton > button:hover {{ transform: translateY(-2px); box-shadow: 0 8px 20px {t['highlight']}66; }}
     .stTextInput > div > div > input, .stTextArea > div > div > textarea, .stSelectbox > div > div {{
         background-color: {t['card']} !important; color: {t['text']} !important;
         border: 1px solid {t['border']} !important; border-radius: 10px !important;
+    }}
+    .stTextInput > div > div > input, .stTextArea > div > div > textarea {{
+        unicode-bidi: plaintext;
     }}
     .stTabs [data-baseweb="tab"] {{
         background-color: {t['card']}; color: {t['text']};
@@ -1407,7 +1354,7 @@ def apply_theme():
         transition: all 0.3s;
     }}
     .file-card:hover {{ border-color: {t['accent']}; box-shadow: 0 6px 20px {t['accent']}33; }}
-    .file-icon {{ font-size: 2.5rem; }}
+    .file-icon {{ font-size: 2.5rem; display: inline-block; margin-left: 0.5rem; }}
     .file-title {{ font-weight: 700; font-size: 1.1rem; color: {t['text']}; }}
     .file-meta {{ font-size: 0.85rem; opacity: 0.75; color: {t['text']}; }}
     .stat-box {{
@@ -1424,6 +1371,7 @@ def apply_theme():
     .footer {{
         text-align: center; padding: 1.5rem; color: {t['text']};
         opacity: 0.6; font-size: 0.85rem; border-top: 1px solid {t['border']}; margin-top: 2rem;
+        direction: ltr;
     }}
     .header-banner {{
         background: linear-gradient(135deg, {t['accent']}, {t['border']});
@@ -1440,24 +1388,16 @@ def apply_theme():
         display: inline-block; background: {t['accent']}; color: #fff;
         border-radius: 12px; padding: 0.15rem 0.6rem; font-size: 0.75rem; margin: 0.1rem;
     }}
-    .pin-badge {{
-        background: {t['highlight']}; color: #000; border-radius: 8px;
-        padding: 0.1rem 0.4rem; font-size: 0.7rem; font-weight: 700;
-    }}
+    .pin-badge {{ background: {t['highlight']}; color: #000; border-radius: 8px; padding: 0.1rem 0.4rem; font-size: 0.7rem; font-weight: 700; }}
     .comment-box {{ background: {t['secondary']}; border-radius: 10px; padding: 0.8rem; margin: 0.4rem 0; }}
-    .coll-card {{
-        background: linear-gradient(135deg, {t['card']}, {t['secondary']});
-        border: 2px solid {t['accent']}; border-radius: 16px; padding: 1rem; margin: 0.5rem 0;
-    }}
-    .mode-reader {{ background: #FAF3E0; color: #2C2C2C; padding: 2rem; border-radius: 12px; line-height: 2; }}
-    .mode-night {{ background: #0F0F1A; color: #C8C8D4; padding: 2rem; border-radius: 12px; line-height: 2; }}
+    .coll-card {{ background: linear-gradient(135deg, {t['card']}, {t['secondary']}); border: 2px solid {t['accent']}; border-radius: 16px; padding: 1rem; margin: 0.5rem 0; }}
+    .mode-reader {{ background: #FAF3E0; color: #2C2C2C; padding: 2rem; border-radius: 12px; line-height: 2; direction: rtl; }}
+    .mode-night {{ background: #0F0F1A; color: #C8C8D4; padding: 2rem; border-radius: 12px; line-height: 2; direction: rtl; }}
+    /* auto direction for content */
+    .auto-dir {{ unicode-bidi: plaintext; }}
     </style>
     """
     st.markdown(css, unsafe_allow_html=True)
-
-def T(key):
-    lang = st.session_state.get("language", "ar")
-    return TRANSLATIONS.get(lang, TRANSLATIONS["ar"]).get(key, key)
 
 def footer():
     st.markdown('<div class="footer">© 2026 Soufiane Ouhazza — 3AC RevisioMaroc</div>', unsafe_allow_html=True)
@@ -1602,7 +1542,6 @@ def render_dashboard():
     with c3: st.markdown(f'<div class="stat-box"><div class="stat-number">{stats["quizzes_taken"] if stats else 0}</div><div>الاختبارات</div></div>', unsafe_allow_html=True)
     with c4: st.markdown(f'<div class="stat-box"><div class="stat-number">{rank.split()[0]}</div><div>{rank}</div></div>', unsafe_allow_html=True)
     st.progress((points % 100) / 100, text=f"المستوى {level + 1}: {points % 100}/100")
-    # Smart search
     st.markdown("### 🔍 بحث ذكي شامل")
     with st.form("smart_search"):
         q = st.text_input("ابحث فـ الدروس، الملفات، الحزم...")
@@ -1635,14 +1574,13 @@ def render_dashboard():
         if st.button("📂 كل الملفات", use_container_width=True): st.session_state.page = "files"; st.rerun()
     with c4:
         if st.button("📦 الحزم", use_container_width=True): st.session_state.page = "collections"; st.rerun()
-    # Recent
     st.markdown("### 📂 أحدث الملفات")
     recent = get_files()[:5]
     if recent:
         for f in recent:
             subj = SUBJECTS.get(f["subject"], {"name": f["subject"] or "عام", "icon": "📄"})
             icon = get_file_icon(f["file_type"], f["file_name"])
-            st.markdown(f'<div class="file-card"><div class="file-icon">{icon}</div><b>{f["title"]}</b> <span class="file-meta">— {subj["icon"]} {subj["name"]} • {format_size(f["file_size"])} • ⬇️ {f["downloads"]}</span></div>', unsafe_allow_html=True)
+            st.markdown(f'<div class="file-card"><span class="file-icon">{icon}</span><b>{f["title"]}</b> <span class="file-meta">— {subj["icon"]} {subj["name"]} • {format_size(f["file_size"])} • ⬇️ {f["downloads"]}</span></div>', unsafe_allow_html=True)
     else:
         st.info("لا توجد ملفات")
     footer()
@@ -1678,7 +1616,7 @@ def render_search_results():
                 st.rerun()
     with tabs[2]:
         for c in results["collections"]:
-            st.markdown(f"**{c['icon']} {c['title']}** — {c.get('description', '')}")
+            st.markdown(f"**{c['icon']} {c['title']}**")
             if st.button(f"عرض الحزمة", key=f"srch_c_{c['id']}"):
                 st.session_state.view_collection_id = c["id"]
                 st.session_state.page = "collection_view"
@@ -1686,7 +1624,7 @@ def render_search_results():
     footer()
 
 # ============================================================
-# LESSONS PAGE
+# LESSONS
 # ============================================================
 
 def render_lessons():
@@ -1749,7 +1687,7 @@ def render_lesson_view():
     tabs = st.tabs(["📖 المحتوى", "📎 الملفات", "📄 نماذج الفروض", "🏋️ التمارين", "🖼️ الصور", "⭐ التقييمات", "💬 المناقشة", "📝 ملاحظاتي"])
     with tabs[0]:
         if lesson["content"]:
-            st.write(lesson["content"])
+            smart_text(lesson["content"])
         if lesson["image_url"]:
             st.image(lesson["image_url"], use_container_width=True)
         if lesson["pdf_url"]:
@@ -1765,7 +1703,6 @@ def render_lesson_view():
                 st.session_state.quiz_start_time = time.time()
                 st.session_state.page = "quiz"
                 st.rerun()
-        # Aspect 10: download all as ZIP
         attached = get_lesson_files(lid)
         if attached:
             zip_data = build_lesson_zip(lid)
@@ -1804,7 +1741,7 @@ def _render_lesson_files_section(lid, category):
                         link_file_to_lesson(lid, chosen, st.session_state.username, 1 if pinned else 0)
                         st.success("تم الربط"); st.rerun()
             else:
-                st.info("لا توجد ملفات متاحة من هذا النوع")
+                st.info("لا توجد ملفات متاحة")
     if not files:
         st.info(f"لا توجد ملفات من نوع {category}")
         return
@@ -1813,10 +1750,9 @@ def _render_lesson_files_section(lid, category):
         pinned = f.get("link_pinned", 0) if "link_pinned" in f.keys() else 0
         pin_html = '<span class="pin-badge">📌 مثبت</span>' if pinned or f["is_pinned"] else ""
         st.markdown(f"""<div class="file-card">
-            <div class="file-icon">{icon}</div>
+            <span class="file-icon">{icon}</span>
             <b>{f['title']}</b> {pin_html}<br>
-            <span class="file-meta">{format_size(f['file_size'])} • 👁️ {f['reads']} • ⬇️ {f['downloads']} • 📅 {f['created_at'][:10]}</span><br>
-            <span class="file-meta">{f['description'] or ''}</span>
+            <span class="file-meta">{format_size(f['file_size'])} • 👁️ {f['reads']} • ⬇️ {f['downloads']} • 📅 {f['created_at'][:10]}</span>
         </div>""", unsafe_allow_html=True)
         c1, c2, c3, c4 = st.columns(4)
         with c1:
@@ -1854,14 +1790,15 @@ def _render_reviews(lid):
             st.rerun()
     for r in get_reviews(lid):
         st.markdown(f"**{r['username']}** — {'⭐' * r['rating']}")
-        if r["comment"]: st.write(r["comment"])
+        if r["comment"]:
+            smart_text(r["comment"])
         st.divider()
 
 def _render_discussion(lid):
     st.markdown("#### 💬 المناقشة")
     for m in get_messages(lid):
         st.markdown(f"**{m['username']}** _({m['created_at'][:16]})_")
-        st.write(m["message"])
+        smart_text(m["message"])
         st.divider()
     with st.form(f"msg_form_{lid}"):
         msg = st.text_area("رسالتك")
@@ -1877,13 +1814,14 @@ def _render_notes(lid):
             if note.strip():
                 add_note(st.session_state.username, lid, note.strip()); st.rerun()
     for n in get_notes(st.session_state.username, lid):
-        st.markdown(f"_{n['created_at'][:16]}_"); st.write(n["note"])
+        st.markdown(f"_{n['created_at'][:16]}_")
+        smart_text(n["note"])
         if st.button("🗑️", key=f"del_note_{n['id']}"):
             delete_note(n["id"]); st.rerun()
         st.divider()
 
 # ============================================================
-# FILE VIEW (Aspect 5, 12, 14, 15, 16, 17, 18)
+# FILE VIEW
 # ============================================================
 
 def render_file_view():
@@ -1898,17 +1836,14 @@ def render_file_view():
     subj = SUBJECTS.get(f["subject"], {"name": f["subject"] or "عام", "icon": "📄"})
     icon = get_file_icon(f["file_type"], f["file_name"])
     st.markdown(f'<div class="header-banner"><h1>{icon} {f["title"]}</h1><p>{subj["icon"]} {subj["name"]} • {format_size(f["file_size"])}</p></div>', unsafe_allow_html=True)
-    # Reading mode toggle (Aspect 14)
     st.markdown("### 📖 القراءة")
     mode = st.radio("وضع القراءة", ["عادي", "سبيا (مريح)", "ليلي"], horizontal=True)
     if mode == "سبيا (مريح)":
         st.markdown('<div class="mode-reader">', unsafe_allow_html=True)
     elif mode == "ليلي":
         st.markdown('<div class="mode-night">', unsafe_allow_html=True)
-    # render
     if f["file_path"] and os.path.exists(f["file_path"]):
         if f["file_name"].lower().endswith(".pdf"):
-            # Reading progress (Aspect 5)
             read_start = time.time()
             render_pdf(f["file_path"])
             elapsed = int(time.time() - read_start)
@@ -1916,22 +1851,20 @@ def render_file_view():
         elif f["file_name"].lower().endswith((".png", ".jpg", ".jpeg", ".gif", ".webp")):
             render_image(f["file_path"])
         else:
-            st.info("لا يمكن قراءة هذا النوع مباشرة — حمله للاطلاع عليه")
+            st.info("لا يمكن قراءة هذا النوع مباشرة")
             increment_file_read(fid, st.session_state.username)
     else:
-        st.warning("الملف غير موجود على القرص")
+        st.warning("الملف غير موجود")
     if mode != "عادي":
         st.markdown('</div>', unsafe_allow_html=True)
-    # Rating (Aspect 9)
     st.markdown("### ⭐ تقييم الملف")
     avg, cnt = get_file_avg_rating(fid)
     st.markdown(f"**المعدل:** {avg:.1f}/5 ({cnt} تقييم)")
     with st.form(f"rate_file_{fid}"):
         rating = st.slider("قيّم الملف", 1, 5, 5)
-        if st.form_submit_button("إرسال التقييم"):
+        if st.form_submit_button("إرسال"):
             add_file_rating(fid, st.session_state.username, rating)
-            st.success("تم التقييم"); st.rerun()
-    # Comments (Aspect 8)
+            st.rerun()
     st.markdown("### 💬 التعليقات")
     for cm in get_file_comments(fid):
         st.markdown(f'<div class="comment-box"><b>{cm["username"]}</b> _({cm["created_at"][:16]})_<br>{cm["comment"]}</div>', unsafe_allow_html=True)
@@ -1940,35 +1873,27 @@ def render_file_view():
         if st.form_submit_button("إرسال"):
             if comment.strip():
                 add_file_comment(fid, st.session_state.username, comment.strip()); st.rerun()
-    # Versions (Aspect 17)
     versions = get_file_versions(fid)
     if versions:
         st.markdown("### 🔄 الإصدارات")
         for v in versions:
             st.markdown(f"**v{v['version']}** — {v['notes'] or ''} — {format_size(v['file_size'])} — {v['created_at'][:10]}")
-    # Links to lessons (Aspect 1)
     lessons = get_lessons_using_file(fid)
     if lessons:
         st.markdown("### 🔗 دروس مرتبطة")
         for l in lessons:
             st.markdown(f"- 📖 {l['title']}")
-    # Download
     st.markdown("### ⬇️ التحميل")
-    c1, c2 = st.columns(2)
-    with c1:
-        if st.button("📥 تحميل الملف", use_container_width=True):
-            increment_file_download(fid, st.session_state.username)
-            with open(f["file_path"], "rb") as fh:
-                data = fh.read()
-            st.download_button("اضغط هنا للتحميل", data=data, file_name=f["file_name"],
-                               mime="application/octet-stream", key=f"dl_fileview_{fid}")
-    with c2:
-        if f["file_path"] and os.path.exists(f["file_path"]):
-            pass
+    if st.button("📥 تحميل الملف", use_container_width=True):
+        increment_file_download(fid, st.session_state.username)
+        with open(f["file_path"], "rb") as fh:
+            data = fh.read()
+        st.download_button("اضغط هنا للتحميل", data=data, file_name=f["file_name"],
+                           mime="application/octet-stream", key=f"dl_fileview_{fid}")
     footer()
 
 # ============================================================
-# FILES PAGE (browse / upload)
+# FILES PAGE
 # ============================================================
 
 def render_files():
@@ -1996,7 +1921,7 @@ def render_files():
                                                        "reads": "الأكثر قراءة", "title": "أبجدي"}[x])
         with c5:
             search = st.text_input("🔍 بحث", key="files_search")
-        tag_filter = st.text_input("🏷️ Tag (مثال: ملخص)", key="files_tag")
+        tag_filter = st.text_input("🏷️ Tag", key="files_tag")
         files_list = get_files(subject=subject, category=category, search=search, level=level,
                                tag=tag_filter if tag_filter else None, sort=sort)
         st.markdown(f"**عدد الملفات:** {len(files_list)}")
@@ -2008,10 +1933,9 @@ def render_files():
             tags_html = "".join([f'<span class="tag-chip">{t.strip()}</span>' for t in (f["tags"] or "").split(",") if t.strip()])
             pin = '<span class="pin-badge">📌</span>' if f["is_pinned"] else ""
             st.markdown(f"""<div class="file-card">
-                <div class="file-icon">{icon}</div>
+                <span class="file-icon">{icon}</span>
                 <b>{f['title']}</b> {pin}<br>
-                <span class="file-meta">{subj['icon']} {subj['name']} • {format_size(f['file_size'])} • 👁️ {f['reads']} • ⬇️ {f['downloads']} • {f['created_at'][:10]}</span><br>
-                <span class="file-meta">{f['description'] or ''}</span><br>
+                <span class="file-meta">{subj['icon']} {subj['name']} • {format_size(f['file_size'])} • 👁️ {f['reads']} • ⬇️ {f['downloads']}</span>
                 {tags_html}
             </div>""", unsafe_allow_html=True)
             c1, c2, c3 = st.columns(3)
@@ -2028,14 +1952,12 @@ def render_files():
                     st.download_button("اضغط", data=data, file_name=f["file_name"],
                                        mime="application/octet-stream", key=f"dlbtn_{f['id']}")
             with c3:
-                if st.button("🔗 دروس مرتبطة", key=f"lessons_f_{f['id']}"):
+                if st.button("🔗 دروس", key=f"lessons_f_{f['id']}"):
                     ls = get_lessons_using_file(f["id"])
                     if ls:
-                        st.info(f"مرتبط بـ {len(ls)} درس")
-                        for l in ls:
-                            st.write(f"- {l['title']}")
+                        for l in ls: st.write(f"- {l['title']}")
                     else:
-                        st.warning("غير مرتبط بأي درس")
+                        st.warning("غير مرتبط")
             st.divider()
     with tab2:
         with st.form("upload_new_file"):
@@ -2049,7 +1971,7 @@ def render_files():
                                                            "models": "نموذج"}.get(x, x))
             level = st.selectbox("المستوى", list(LEVELS.keys()), format_func=lambda x: LEVELS[x])
             description = st.text_area("الوصف")
-            tags = st.text_input("Tags (افصل بفاصلة)")
+            tags = st.text_input("Tags")
             uploaded = st.file_uploader("اختر الملف *")
             if st.form_submit_button("⬆️ رفع", use_container_width=True):
                 if not title or not uploaded:
@@ -2063,11 +1985,11 @@ def render_files():
     footer()
 
 # ============================================================
-# COLLECTIONS (Aspect 3, 10)
+# COLLECTIONS
 # ============================================================
 
 def render_collections():
-    st.markdown('<div class="header-banner"><h1>📦 الحزم</h1><p>مجموعات دروس + ملفات + تمارين</p></div>', unsafe_allow_html=True)
+    st.markdown('<div class="header-banner"><h1>📦 الحزم</h1></div>', unsafe_allow_html=True)
     tab1, tab2 = st.tabs(["📥 تصفح", "➕ إنشاء"])
     with tab1:
         subject = st.selectbox("المادة", ["all"] + list(SUBJECTS.keys()),
@@ -2092,7 +2014,7 @@ def render_collections():
             with c2:
                 zip_data = build_collection_zip(cl["id"])
                 if zip_data:
-                    st.download_button("📦 تحميل الكل", data=zip_data,
+                    st.download_button("📦 تحميل", data=zip_data,
                                        file_name=f"collection_{cl['id']}.zip",
                                        mime="application/zip", key=f"zip_coll_{cl['id']}")
             with c3:
@@ -2102,7 +2024,7 @@ def render_collections():
             st.divider()
     with tab2:
         if st.session_state.role != "developer":
-            st.warning("فقط المطور يمكنه إنشاء الحزم")
+            st.warning("فقط المطور")
         else:
             with st.form("create_coll"):
                 title = st.text_input("العنوان *")
@@ -2203,7 +2125,8 @@ def _render_quiz_ui(questions, lesson_id):
             ua = answers.get(i); ca = q["correct_answer"]
             st.markdown(f"{'✅' if ua == ca else '❌'} **{q['question']}**")
             st.write(f"إجابتك: {ua.upper() if ua else '—'} | الصحيحة: {ca.upper()}")
-            if q.get("explanation"): st.info(q["explanation"])
+            if q.get("explanation"):
+                smart_text(q["explanation"])
             st.divider()
         if st.button("العودة"):
             for k in ["quiz_questions", "quiz_answers", "quiz_current", "quiz_start_time"]:
@@ -2212,7 +2135,7 @@ def _render_quiz_ui(questions, lesson_id):
         return
     q = questions[idx]
     st.markdown(f"#### السؤال {idx + 1} / {total}")
-    st.write(q["question"])
+    smart_text(q["question"])
     opts = {"a": q["option_a"], "b": q["option_b"], "c": q["option_c"], "d": q["option_d"]}
     sel = st.radio("اختر:", list(opts.keys()), format_func=lambda x: f"{x.upper()}) {opts[x]}",
                    index=None, key=f"q_{idx}")
@@ -2380,7 +2303,7 @@ def render_flashcards():
     for c in cards:
         s = "✅" if c["known"] else "❌"
         with st.expander(f"{s} {c['front']}"):
-            st.write(c["back"])
+            smart_text(c["back"])
             c1, c2 = st.columns(2)
             with c1:
                 if st.button("🔄", key=f"t_{c['id']}"):
@@ -2608,12 +2531,11 @@ def render_developer_panel():
         for l in lessons:
             subj = SUBJECTS.get(l["subject"], {"icon": "📖"})
             with st.expander(f"{subj['icon']} {l['title']}"):
-                st.write(l["content"])
+                smart_text(l["content"])
                 c1, c2 = st.columns(2)
                 with c1:
                     if st.button("🔗 ربط ملف", key=f"link_{l['id']}"):
-                        st.session_state.link_lesson_id = l["id"]
-                        st.info("انتقل لتبويب الملفات لربط ملف")
+                        st.info("انتقل لتبويب الملفات")
                 with c2:
                     if st.button("🗑️ حذف", key=f"del_les_{l['id']}"):
                         delete_lesson(l["id"]); st.rerun()
@@ -2670,7 +2592,6 @@ def render_developer_panel():
             with st.expander(f"{icon} {f['title']} — {subj['name']}"):
                 st.write(f"**النوع:** {f['category']} — **المستوى:** {f['level']}")
                 st.write(f"**الحجم:** {format_size(f['file_size'])} — **تحميلات:** {f['downloads']} — **قراءات:** {f['reads']}")
-                # link to lesson
                 st.markdown("**🔗 ربط بدرس:**")
                 lessons = load_lessons()
                 if lessons:
@@ -2702,7 +2623,6 @@ def render_developer_panel():
                 if title:
                     add_collection(title, desc, subject, icon, st.session_state.username)
                     st.success("تم"); st.rerun()
-        st.markdown("### 📋 الحزم")
         for cl in get_collections():
             st.markdown(f"**{cl['icon']} {cl['title']}** — {len(get_collection_items(cl['id']))} عنصر")
             if st.button("🗑️", key=f"dcl_{cl['id']}"):
@@ -2735,7 +2655,7 @@ def render_developer_panel():
         with c4: st.metric("مستخدمون", uc)
         with c5: st.metric("حزم", cc)
         with c6: st.metric("تحميلات", dc)
-        st.markdown("### 📊 الملفات حسب النوع")
+        st.markdown("### 📊 حسب النوع")
         for cat in cats:
             st.markdown(f"- **{cat['category']}**: {cat['cnt']}")
         st.markdown("### 🔥 الأكثر تحميلاً")
@@ -2760,12 +2680,6 @@ def render_sidebar():
         idx = theme_keys.index(cur) if cur in theme_keys else 0
         sel = st.selectbox("🎨 الثيم", theme_names, index=idx)
         st.session_state.theme = theme_keys[theme_names.index(sel)]
-        lang_opts = ["ar", "fr", "en"]
-        lang_names = ["العربية", "Français", "English"]
-        cur_lang = st.session_state.get("language", "ar")
-        li = lang_opts.index(cur_lang) if cur_lang in lang_opts else 0
-        sel_lang = st.selectbox("🌐 اللغة", lang_names, index=li)
-        st.session_state.language = lang_opts[lang_names.index(sel_lang)]
         st.divider()
         pages = [
             ("dashboard", "🏠", "الرئيسية"),
@@ -2803,7 +2717,7 @@ def render_sidebar():
 
 init_db()
 
-defaults = {"theme": "fcb", "language": "ar", "authenticated": False, "page": "dashboard"}
+defaults = {"theme": "fcb", "authenticated": False, "page": "dashboard"}
 for k, v in defaults.items():
     if k not in st.session_state:
         st.session_state[k] = v
